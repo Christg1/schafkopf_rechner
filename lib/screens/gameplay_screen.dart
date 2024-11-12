@@ -304,6 +304,29 @@ class GameplayScreen extends StatelessWidget {
   }
 
   Future<void> _showEndSessionDialog(BuildContext context, Session session) async {
+    // Calculate who owes whom
+    List<String> debtMessages = [];
+    for (var i = 0; i < session.players.length; i++) {
+      for (var j = i + 1; j < session.players.length; j++) {
+        final player1 = session.players[i];
+        final player2 = session.players[j];
+        final balance1 = session.playerBalances[player1] ?? 0;
+        final balance2 = session.playerBalances[player2] ?? 0;
+        
+        if (balance1 > balance2) {
+          final debt = ((balance1 - balance2) / 2).abs();
+          if (debt >= 0.01) { // Only show if debt is at least 1 cent
+            debtMessages.add('${player2} schuldet ${player1} ${debt.toStringAsFixed(2)}€');
+          }
+        } else if (balance2 > balance1) {
+          final debt = ((balance2 - balance1) / 2).abs();
+          if (debt >= 0.01) {
+            debtMessages.add('${player1} schuldet ${player2} ${debt.toStringAsFixed(2)}€');
+          }
+        }
+      }
+    }
+
     return showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -315,19 +338,24 @@ class GameplayScreen extends StatelessWidget {
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Möchtest du die aktuelle Session beenden?'),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${session.rounds.length} Spiele gespielt 🎮\n'
-                  '${session.players.length} Spieler 👥',
-                  textAlign: TextAlign.center,
-                ),
-              ],
+            Text(
+              '${session.rounds.length} Spiele gespielt 🎮\n'
+              '${session.players.length} Spieler 👥',
+              textAlign: TextAlign.center,
             ),
+            if (debtMessages.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Schulden:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ...debtMessages.map((msg) => Text('• $msg')),
+            ],
           ],
         ),
         actions: [
@@ -336,7 +364,11 @@ class GameplayScreen extends StatelessWidget {
             child: const Text('Abbrechen'),
           ),
           TextButton(
-            onPressed: () => _endSession(context, sessionId),
+            onPressed: () async {
+              await _endSession(context, session.id);
+              if (!context.mounted) return;
+              Navigator.of(context).pushReplacementNamed('/'); // Navigate to home instead of statistics
+            },
             child: const Text('Beenden ✅'),
           ),
         ],
@@ -382,9 +414,11 @@ class GameplayScreen extends StatelessWidget {
                       ),
                       const Divider(),
                       ...session.players.asMap().entries.map((entry) {
+                        final index = entry.key;
                         final player = entry.value;
                         final balance = session.playerBalances[player] ?? 0;
-                        final emoji = _playerEmojis[entry.key % _playerEmojis.length];
+                        final emoji = _playerEmojis[index % _playerEmojis.length];
+                        final isDealer = index == (session.rounds.length % 4);  // Dealer rotates every round
                         
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -402,6 +436,10 @@ class GameplayScreen extends StatelessWidget {
                                     player,
                                     style: Theme.of(context).textTheme.titleMedium,
                                   ),
+                                  if (isDealer) ...[
+                                    const SizedBox(width: 8),
+                                    const Text('🎯', style: TextStyle(fontSize: 20)),
+                                  ],
                                 ],
                               ),
                               Text(
@@ -489,3 +527,4 @@ class GameplayScreen extends StatelessWidget {
     );
   }
 }
+
