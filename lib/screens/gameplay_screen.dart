@@ -1,21 +1,19 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game_types.dart';
 import '../models/game_round.dart';
 import '../utils/game_calculator.dart';
+import '../services/session_service.dart';
+import '../models/session.dart';
 
 class GameplayScreen extends StatefulWidget {
-  final String gameId;
-  final List<String> players;
-  final int initialDealer;
-  final int baseValue;
+  final String sessionId;
   
   const GameplayScreen({
-    super.key, 
-    required this.gameId,
-    required this.players,
-    required this.initialDealer,
-    required this.baseValue,
+    super.key,
+    required this.sessionId,
   });
 
   @override
@@ -23,164 +21,113 @@ class GameplayScreen extends StatefulWidget {
 }
 
 class _GameplayScreenState extends State<GameplayScreen> {
-  late int _currentDealer;
-  Map<String, double> _playerBalances = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _currentDealer = widget.initialDealer;
-    // Initialize balances to 0 for all players
-    for (String player in widget.players) {
-      _playerBalances[player] = 0;
-    }
-  }
+  final SessionService _sessionService = SessionService();
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Spielverlauf'),
-      ),
-      body: Column(
-        children: [
-          // Dealer indicator
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(
-              'Geber: ${widget.players[_currentDealer]}',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-          ),
+    return StreamBuilder<Session?>(
+      stream: _sessionService.getActiveSession(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(child: Text('Error: ${snapshot.error}')),
+          );
+        }
 
-          // Balance Overview Card
-          Card(
-            margin: const EdgeInsets.all(8.0),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Aktueller Spielstand:',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
+        if (!snapshot.hasData) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final session = snapshot.data!;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Spielverlauf'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.stop),
+                onPressed: () => _endSession(session),
+              ),
+            ],
+          ),
+          body: Column(
+            children: [
+              // Dealer indicator
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  'Geber: ${session.players[session.currentDealer]}',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+
+              // Balance overview
+              Card(
+                margin: const EdgeInsets.all(8.0),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          children: widget.players.map((player) {
-                            final balance = _playerBalances[player] ?? 0;
-                            final isPositive = balance >= 0;
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(player),
-                                  Text(
-                                    '${isPositive ? "+" : ""}${(balance / 100).toStringAsFixed(2)}€',
-                                    style: TextStyle(
-                                      color: isPositive ? Colors.green : Colors.red,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
+                      const Text(
+                        'Aktueller Spielstand:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      ...session.players.map((player) {
+                        final balance = session.playerBalances[player] ?? 0;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(player),
+                              Text(
+                                '${(balance / 100).toStringAsFixed(2)}€',
+                                style: TextStyle(
+                                  color: balance >= 0 ? Colors.green : Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+
+              // Rounds list
+              Expanded(
+                child: ListView.builder(
+                  itemCount: session.rounds.length,
+                  itemBuilder: (context, index) {
+                    final round = session.rounds[index];
+                    return ListTile(
+                      title: Text('Runde ${index + 1}: ${round.gameType.name}'),
+                      subtitle: Text(_buildRoundDescription(round)),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-
-          // Rounds List
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('games')
-                  .doc(widget.gameId)
-                  .collection('rounds')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                // Calculate balances from rounds
-                _updateBalances(snapshot.data?.docs ?? []);
-
-                return snapshot.data!.docs.isEmpty
-                    ? const Center(child: Text('Noch keine Runden gespielt'))
-                    : ListView.builder(
-                        itemCount: snapshot.data!.docs.length,
-                        itemBuilder: (context, index) {
-                          final roundData = 
-                              snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                          final round = GameRound.fromFirestore(roundData);
-                          return ListTile(
-                            title: Text('Runde ${index + 1}: ${round.gameType.name}'),
-                            subtitle: Text(_buildRoundDescription(round)),
-                          );
-                        },
-                      );
-              },
-            ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => _showNewRoundDialog(session),
+            child: const Icon(Icons.add),
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showNewRoundDialog,
-        child: const Icon(Icons.add),
-      ),
+        );
+      },
     );
   }
 
-  String _buildRoundDescription(GameRound round) {
-    final parts = <String>[];
-    
-    // Basic game info
-    parts.add('${round.mainPlayer} - ${round.gameType.name}');
-    
-    // Partner for Sauspiel
-    if (round.gameType == GameType.sauspiel && round.partner != null) {
-      parts.add('mit ${round.partner}');
-    }
-    
-    // Game result
-    parts.add(round.isWon ? 'Gewonnen' : 'Verloren');
-    
-    // Special conditions
-    if (round.isSchneider) parts.add('Schneider');
-    if (round.isSchwarz) parts.add('Schwarz');
-    
-    // Additional modifiers
-    if (round.knockingPlayers.isNotEmpty) {
-      parts.add('${round.knockingPlayers.length}x Klopfen');
-    }
-    if (round.kontraPlayers.isNotEmpty) parts.add('Kontra');
-    if (round.rePlayers.isNotEmpty) parts.add('Re');
-    
-    // Game value
-    parts.add('${(round.value / 100).toStringAsFixed(2)}€');
-    
-    return parts.join(' | ');
-  }
-
-  void _showNewRoundDialog() {
+  void _showNewRoundDialog(Session session) {
     GameType? selectedGameType;
     String? selectedPlayer;
     String? selectedPartner;
@@ -199,7 +146,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
             final currentValue = selectedGameType != null 
                 ? GameCalculator.calculateGameValue(
                     gameType: selectedGameType!,
-                    baseValue: widget.baseValue,
+                    baseValue: session.baseValue,
                     knockingPlayers: knockingPlayers.toList(),
                     kontraPlayers: kontraPlayers.toList(),
                     rePlayers: rePlayers.toList(),
@@ -237,7 +184,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                     DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Spieler'),
                       value: selectedPlayer,
-                      items: widget.players.map((player) {
+                      items: session.players.map((player) {
                         return DropdownMenuItem(
                           value: player,
                           child: Text(player),
@@ -254,7 +201,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                       DropdownButtonFormField<String>(
                         decoration: const InputDecoration(labelText: 'Partner'),
                         value: selectedPartner,
-                        items: widget.players
+                        items: session.players
                             .where((player) => player != selectedPlayer)
                             .map((player) {
                           return DropdownMenuItem(
@@ -301,7 +248,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                     const Text('Klopfen:', style: TextStyle(fontSize: 16)),
                     Wrap(
                       spacing: 8.0,
-                      children: widget.players.map((player) {
+                      children: session.players.map((player) {
                         return FilterChip(
                           label: Text(player),
                           selected: knockingPlayers.contains(player),
@@ -324,7 +271,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                     const Text('Kontra:', style: TextStyle(fontSize: 16)),
                     Wrap(
                       spacing: 8.0,
-                      children: widget.players.map((player) {
+                      children: session.players.map((player) {
                         return FilterChip(
                           label: Text(player),
                           selected: kontraPlayers.contains(player),
@@ -348,7 +295,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                     const Text('Re:', style: TextStyle(fontSize: 16)),
                     Wrap(
                       spacing: 8.0,
-                      children: widget.players.map((player) {
+                      children: session.players.map((player) {
                         return FilterChip(
                           label: Text(player),
                           selected: rePlayers.contains(player),
@@ -407,7 +354,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                         rePlayers: rePlayers.toList(),
                         value: currentValue,
                       );
-                      _saveRound(round);
+                      _sessionService.addRound(widget.sessionId, round);
                       Navigator.pop(context);
                     }
                   },
@@ -421,103 +368,134 @@ class _GameplayScreenState extends State<GameplayScreen> {
     );
   }
 
-  Future<void> _saveRound(GameRound round) async {
-    try {
-      // Update dealer
-      setState(() {
-        _currentDealer = (_currentDealer + 1) % 4;
-      });
+  Future<void> _showSessionSummary(Session session) async {
+    // Calculate net balances between players
+    final Map<String, Map<String, double>> settlements = {};
+    
+    // Initialize settlements map
+    for (String player in session.players) {
+      settlements[player] = {};
+      for (String otherPlayer in session.players) {
+        if (player != otherPlayer) {
+          settlements[player]![otherPlayer] = 0.0;
+        }
+      }
+    }
 
-      // Save round to Firestore
-      await FirebaseFirestore.instance
-          .collection('games')
-          .doc(widget.gameId)
-          .update({
-        'rounds': FieldValue.arrayUnion([round.toFirestore()]),
-        'currentDealer': _currentDealer,
-      });
+    // Calculate who owes who
+    for (int i = 0; i < session.players.length; i++) {
+      String player = session.players[i];
+      double balance = session.playerBalances[player] ?? 0;
+      
+      if (balance < 0) {
+        // This player owes money
+        for (int j = i + 1; j < session.players.length; j++) {
+          String otherPlayer = session.players[j];
+          double otherBalance = session.playerBalances[otherPlayer] ?? 0;
+          
+          if (otherBalance > 0) {
+            double amount = min(-balance, otherBalance);
+            settlements[player]![otherPlayer] = amount;
+            balance += amount;
+            otherBalance -= amount;
+          }
+        }
+      }
+    }
 
-      // Show success message
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Runde gespeichert'),
-          duration: Duration(seconds: 2),
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Spielabrechnung'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Endstand:', style: TextStyle(fontWeight: FontWeight.bold)),
+              ...session.playerBalances.entries.map((e) => 
+                Text('${e.key}: ${(e.value / 100).toStringAsFixed(2)}€')),
+              const SizedBox(height: 16),
+              const Text('Ausgleichszahlungen:', style: TextStyle(fontWeight: FontWeight.bold)),
+              ...settlements.entries.expand((player) => 
+                player.value.entries
+                    .where((payment) => payment.value > 0)
+                    .map((payment) => Text(
+                      '${player.key} zahlt an ${payment.key}: ${(payment.value / 100).toStringAsFixed(2)}€'
+                    ))
+              ),
+            ],
+          ),
         ),
-      );
-    } catch (e) {
-      // Show error message if save fails
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fehler beim Speichern: $e'),
-          backgroundColor: Colors.red,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEndSessionDialog(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Spiel beenden'),
+      content: const Text('Möchtest du das Spiel wirklich beenden?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Abbrechen'),
         ),
-      );
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Beenden'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _endSession(Session session) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: _buildEndSessionDialog,
+    );
+
+    if (confirmed == true) {
+      await _showSessionSummary(session);
+      await _sessionService.endSession(session.id);
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/');
     }
   }
 
-  void _updateBalances(List<QueryDocumentSnapshot> rounds) {
-    // Reset balances
-    _playerBalances.clear();
-    for (String player in widget.players) {
-      _playerBalances[player] = 0;
-    }
-
-    // Calculate balances from all rounds
-    for (var roundDoc in rounds) {
-      final roundData = roundDoc.data() as Map<String, dynamic>;
-      final round = GameRound.fromFirestore(roundData);
-      _calculateRoundBalances(round);
+  String _buildRoundDescription(GameRound round) {
+    final parts = <String>[];
+    
+    // Basic game info
+    parts.add('${round.mainPlayer} - ${round.gameType.name}');
+    
+    // Partner for Sauspiel
+    if (round.gameType == GameType.sauspiel && round.partner != null) {
+      parts.add('mit ${round.partner}');
     }
     
-    // Force UI update
-    setState(() {});
-  }
-
-  void _calculateRoundBalances(GameRound round) {
-    if (round.gameType == GameType.sauspiel) {
-      // Sauspiel calculation
-      if (round.isWon) {
-        // Winners get money from losers
-        _playerBalances[round.mainPlayer] = (_playerBalances[round.mainPlayer] ?? 0) + round.value;
-        if (round.partner != null) {
-          _playerBalances[round.partner!] = (_playerBalances[round.partner!] ?? 0) + round.value;
-        }
-        // Losers pay
-        for (String player in widget.players) {
-          if (player != round.mainPlayer && player != round.partner) {
-            _playerBalances[player] = (_playerBalances[player] ?? 0) - round.value;
-          }
-        }
-      } else {
-        // Losers pay winners
-        _playerBalances[round.mainPlayer] = (_playerBalances[round.mainPlayer] ?? 0) - (round.value * 2);
-        if (round.partner != null) {
-          _playerBalances[round.partner!] = (_playerBalances[round.partner!] ?? 0) - (round.value * 2);
-        }
-        // Winners get money
-        for (String player in widget.players) {
-          if (player != round.mainPlayer && player != round.partner) {
-            _playerBalances[player] = (_playerBalances[player] ?? 0) + round.value;
-          }
-        }
-      }
-    } else {
-      // Solo games calculation
-      if (round.isWon) {
-        // Winner gets money from all others
-        _playerBalances[round.mainPlayer] = (_playerBalances[round.mainPlayer] ?? 0) + (round.value * 3);
-      } else {
-        // Losers pay winners
-        _playerBalances[round.mainPlayer] = (_playerBalances[round.mainPlayer] ?? 0) - (round.value * 2);
-        // Winners get money
-        for (String player in widget.players) {
-          if (player != round.mainPlayer) {
-            _playerBalances[player] = (_playerBalances[player] ?? 0) + round.value;
-          }
-        }
-      }
+    // Game result
+    parts.add(round.isWon ? 'Gewonnen' : 'Verloren');
+    
+    // Special conditions
+    if (round.isSchneider) parts.add('Schneider');
+    if (round.isSchwarz) parts.add('Schwarz');
+    
+    // Additional modifiers
+    if (round.knockingPlayers.isNotEmpty) {
+      parts.add('${round.knockingPlayers.length}x Klopfen');
     }
+    if (round.kontraPlayers.isNotEmpty) parts.add('Kontra');
+    if (round.rePlayers.isNotEmpty) parts.add('Re');
+    
+    // Game value
+    parts.add('${(round.value / 100).toStringAsFixed(2)}€');
+    
+    return parts.join(' | ');
   }
 }

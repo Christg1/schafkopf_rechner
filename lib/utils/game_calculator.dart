@@ -2,6 +2,14 @@ import 'dart:math';
 import '../models/game_types.dart';
 
 class GameCalculator {
+  /// Calculates the value of a game round based on various factors
+  /// 
+  /// [baseValue] is the basic point value for the game
+  /// [knockingPlayers] list of players who knocked (each doubles the value)
+  /// [kontraPlayers] list of players who called Kontra (doubles the value)
+  /// [rePlayers] list of players who called Re (doubles the value)
+  /// [isSchneider] adds baseValue if true
+  /// [isSchwarz] adds baseValue if true
   static double calculateGameValue({
     required GameType gameType,
     required int baseValue,
