@@ -11,233 +11,225 @@ class LobbyScreen extends StatefulWidget {
 }
 
 class _LobbyScreenState extends State<LobbyScreen> {
-  final List<TextEditingController> _playerControllers = 
-    List.generate(4, (index) => TextEditingController());
-  final _baseValueController = TextEditingController(text: '0.10');
-  int _selectedDealerIndex = 0;
-  bool _isDisposed = false;
-
-  @override
-  void dispose() {
-    _isDisposed = true;
-    for (var controller in _playerControllers) {
-      if (controller.hasListeners) {
-        controller.dispose();
-      }
-    }
-    if (_baseValueController.hasListeners) {
-      _baseValueController.dispose();
-    }
-    super.dispose();
-  }
+  final List<String> players = [];
+  final TextEditingController _playerController = TextEditingController();
+  final TextEditingController _baseValueController = TextEditingController(text: '10');
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Neue Runde'),
+        title: const Text('Neue Session'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('players')
-            .orderBy('name')
-            .snapshots(),
-        builder: (context, snapshot) {
-          List<String> previousPlayers = [];
-          if (snapshot.hasData) {
-            previousPlayers = snapshot.data!.docs
-                .map((doc) => (doc.data() as Map<String, dynamic>)['name'] as String)
-                .toSet()
-                .toList()
-                ..sort();
-          }
-
-          return Column(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Player input fields
-                      ...List.generate(4, (index) => Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Autocomplete<String>(
-                                optionsBuilder: (TextEditingValue textEditingValue) {
-                                  if (textEditingValue.text.isEmpty) {
-                                    return previousPlayers;
-                                  }
-                                  return previousPlayers.where((player) => 
-                                      player.toLowerCase()
-                                          .contains(textEditingValue.text.toLowerCase()));
-                                },
-                                onSelected: (String selection) {
-                                  _playerControllers[index].text = selection;
-                                  setState(() {});
-                                },
-                                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                                  _playerControllers[index] = controller;
-                                  return TextField(
-                                    controller: controller,
-                                    focusNode: focusNode,
-                                    decoration: InputDecoration(
-                                      labelText: 'Spieler ${index + 1}',
-                                      border: const OutlineInputBorder(),
-                                      errorText: _getErrorText(index),
-                                    ),
-                                    onChanged: (value) => setState(() {}),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            FilterChip(
-                              label: const Text('Geber'),
-                              selected: _selectedDealerIndex == index,
-                              onSelected: _playerControllers[index].text.isEmpty 
-                                  ? null 
-                                  : (selected) {
-                                      setState(() => _selectedDealerIndex = index);
-                                    },
-                            ),
-                          ],
-                        ),
-                      )),
-
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _baseValueController,
-                        decoration: const InputDecoration(
-                          labelText: 'Grundwert (€)',
-                          border: OutlineInputBorder(),
-                          prefixText: '€ ',
-                          hintText: '0.10',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        onChanged: (_) => setState(() {}),
-                      ),
-
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: _canStartSession() ? _startSession : null,
-                        child: const Text('Spiel starten'),
-                      ),
-
-                      if (previousPlayers.isNotEmpty) ...[
-                        const SizedBox(height: 24),
-                        const Text(
-                          'Häufige Spieler:',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ],
+      body: Column(
+        children: [
+          // Settings Card
+          Card(
+            margin: const EdgeInsets.all(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Einstellungen',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  // Base Value Input
+                  TextField(
+                    controller: _baseValueController,
+                    decoration: InputDecoration(
+                      labelText: 'Grundwert',
+                      prefixIcon: const Icon(Icons.euro),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      suffixText: '€',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ],
               ),
+            ),
+          ),
 
-              // Previous Players List
-              if (previousPlayers.isNotEmpty)
-                Container(
-                  height: 100,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 4,
-                        offset: const Offset(0, -2),
+          // Player Input Card
+          Card(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Spieler hinzufügen',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _playerController,
+                          decoration: InputDecoration(
+                            hintText: 'Spielername',
+                            prefixIcon: const Icon(Icons.person_add),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      IconButton.filled(
+                        onPressed: _addPlayer,
+                        icon: const Icon(Icons.add),
                       ),
                     ],
                   ),
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.all(8),
-                    itemCount: previousPlayers.length,
-                    itemBuilder: (context, index) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ActionChip(
-                          avatar: CircleAvatar(
-                            child: Text(previousPlayers[index][0].toUpperCase()),
+                  const SizedBox(height: 16),
+                  // Previous Players
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('players').snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox();
+
+                      final previousPlayers = snapshot.data!.docs
+                          .map((doc) => doc.id)
+                          .where((name) => !players.contains(name))
+                          .toList();
+
+                      if (previousPlayers.isEmpty) return const SizedBox();
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Vorherige Spieler 👥',
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
-                          label: Text(previousPlayers[index]),
-                          onPressed: () {
-                            // Find first empty controller or the last one
-                            final targetControllerIndex = _playerControllers
-                                .indexWhere((controller) => controller.text.isEmpty);
-                            if (targetControllerIndex != -1) {
-                              setState(() {
-                                _playerControllers[targetControllerIndex].text = 
-                                    previousPlayers[index];
-                              });
-                            }
-                          },
-                        ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: previousPlayers.map((name) {
+                              return FilterChip(
+                                label: Text(name),
+                                onSelected: (_) {
+                                  setState(() {
+                                    if (players.length < 4) {
+                                      players.add(name);
+                                    }
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ],
                       );
                     },
                   ),
-                ),
-            ],
-          );
-        },
+                ],
+              ),
+            ),
+          ),
+
+          // Current Players List
+          Expanded(
+            child: Card(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.groups),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Spielerliste',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: players.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final isDealer = index == 0; // First player is dealer
+                        return ListTile(
+                          leading: CircleAvatar(
+                            child: Text(players[index][0].toUpperCase()),
+                          ),
+                          title: Row(
+                            children: [
+                              Text(players[index]),
+                              const SizedBox(width: 8),
+                              if (isDealer) const Text('🎯'), // Dealer indicator
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(index < 4 ? '✅' : '⏳'), // Ready status
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline),
+                                onPressed: () => _removePlayer(index),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
+      floatingActionButton: players.length >= 4
+          ? FloatingActionButton.extended(
+              onPressed: _startSession,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Session starten'),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
-  String? _getErrorText(int index) {
-    final value = _playerControllers[index].text;
-    if (value.isEmpty) return null;
-
-    // Check for duplicates in current game setup only
-    int occurrences = 0;
-    for (var controller in _playerControllers) {
-      if (controller.text.toLowerCase() == value.toLowerCase()) {
-        occurrences++;
-      }
+  void _addPlayer() {
+    final name = _playerController.text.trim();
+    if (name.isNotEmpty && !players.contains(name) && players.length < 4) {
+      setState(() {
+        players.add(name);
+        _playerController.clear();
+      });
     }
-
-    if (occurrences > 1) {
-      return 'Name bereits in dieser Runde vergeben';
-    }
-    return null;
   }
 
-  bool _canStartSession() {
-    // Check if all players are entered
-    final names = _playerControllers.map((c) => c.text.trim()).toList();
-    if (names.any((name) => name.isEmpty)) return false;
-
-    // Check for duplicates
-    if (names.toSet().length != 4) return false;
-
-    // Check if base value is valid
-    try {
-      final baseValueText = _baseValueController.text.replaceAll(',', '.');
-      final baseValueEuro = double.parse(baseValueText);
-      return baseValueEuro > 0;
-    } catch (e) {
-      return false;
-    }
+  void _removePlayer(int index) {
+    setState(() {
+      players.removeAt(index);
+    });
   }
 
   Future<void> _startSession() async {
-    if (_canStartSession()) {
-      final players = _playerControllers.map((c) => c.text.trim()).toList();
-      final baseValue = double.parse(_baseValueController.text.replaceAll(',', '.'));
-      
+    if (players.length == 4) {
       try {
+        final baseValue = double.parse(_baseValueController.text.replaceAll(',', '.'));
+        if (baseValue <= 0) throw Exception('Grundwert muss größer als 0 sein');
+
         final sessionId = await SessionService().createSession(
           players: players,
           baseValue: baseValue,
-          initialDealer: _selectedDealerIndex,
+          initialDealer: 0,
         );
 
         if (!mounted) return;
@@ -254,5 +246,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
         );
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _playerController.dispose();
+    _baseValueController.dispose();
+    super.dispose();
   }
 } 

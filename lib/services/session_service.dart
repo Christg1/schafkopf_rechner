@@ -100,37 +100,21 @@ class SessionService {
 
   // End session
   Future<void> endSession(String sessionId) async {
-    await _db.collection('sessions').doc(sessionId).update({
-      'isActive': false,
-    });
+    try {
+      await _db.collection('sessions').doc(sessionId).update({
+        'isActive': false,
+      });
+    } catch (e) {
+      throw Exception('Failed to end session: $e');
+    }
   }
 
-  Future<void> _updatePlayerStats(GameRound round, WriteBatch batch, List<String> players) async {
-    final playersRef = _db.collection('players');
-
-    for (String playerName in players) {
-      final playerDoc = await playersRef.doc(playerName).get();
-      final Map<String, dynamic> currentData = playerDoc.data() ?? {};
-      
-      // Get current values or default to 0
-      double currentEarnings = (currentData['totalEarnings'] ?? 0.0).toDouble();
-      
-      // Add the new balance from this session
-      double newBalance = currentEarnings;
-      
-      // Update total earnings by adding the new balance from this session
-      if (playerDoc.exists) {
-        newBalance += round.value;  // Add the new balance
-      }
-
-      batch.set(playersRef.doc(playerName), {
-        'name': playerName,
-        'totalEarnings': newBalance,
-        'gamesParticipated': (currentData['gamesParticipated'] ?? 0) + 1,
-        'gamesPlayed': (currentData['gamesPlayed'] ?? 0) + (playerName == round.mainPlayer ? 1 : 0),
-        'gamesWon': (currentData['gamesWon'] ?? 0) + 
-            (playerName == round.mainPlayer && round.isWon ? 1 : 0),
-      }, SetOptions(merge: true));
-    }
+  // Add this method
+  Stream<Session> getSession(String sessionId) {
+    return _db
+        .collection('sessions')
+        .doc(sessionId)
+        .snapshots()
+        .map((doc) => Session.fromFirestore(doc));
   }
 } 

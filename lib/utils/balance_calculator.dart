@@ -10,16 +10,18 @@ class BalanceCalculator {
     required List<String> players,
   }) {
     Map<String, double> newBalances = Map.from(currentBalances);
+    double typeMultiplier = getGameTypeMultiplier(round.gameType);
+    double adjustedValue = round.value * typeMultiplier;
 
     switch (round.gameType) {
       case GameType.sauspiel:
-        _calculateSauspielBalances(newBalances, round.value, round, players);
+        _calculateSauspielBalances(newBalances, adjustedValue, round, players);
         break;
       case GameType.ramsch:
-        _calculateRamschBalances(newBalances, round.value, round, players);
+        _calculateRamschBalances(newBalances, adjustedValue, round, players);
         break;
       default:
-        _calculateSoloBalances(newBalances, round.value, round, players);
+        _calculateSoloBalances(newBalances, adjustedValue, round, players);
         break;
     }
 
@@ -104,6 +106,18 @@ class BalanceCalculator {
       if (player != round.mainPlayer) {
         balances[player] = (balances[player] ?? 0) + valueInEuros;
       }
+    }
+  }
+
+  /// Add multiplier for game types
+  static double getGameTypeMultiplier(GameType type) {
+    switch (type) {
+      case GameType.sauspiel:
+        return 1.0;
+      case GameType.ramsch:
+        return 2.0;
+      default:
+        return 2.0; // All solo games are worth double
     }
   }
 } 

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:schafkopf_rechner/widgets/loading_indicator.dart';
 import '../models/game_types.dart';
 import '../models/game_round.dart';
 import '../utils/game_calculator.dart';
@@ -9,142 +10,25 @@ import '../services/session_service.dart';
 import '../models/session.dart';
 import '../providers/settings_provider.dart';
 
+const _playerEmojis = {
+  0: '😎',
+  1: '🤠',
+  2: '🦊',
+  3: '🐻',
+  4: '🦁',
+  5: '🐯',
+  6: '🐸',
+  7: '🦉',
+  8: '🦄',
+  9: '🐼',
+};
 
-class GameplayScreen extends ConsumerStatefulWidget {
+class GameplayScreen extends StatelessWidget {
   final String sessionId;
-  
-  const GameplayScreen({
-    super.key,
-    required this.sessionId,
-  });
 
-  @override
-  ConsumerState<GameplayScreen> createState() => _GameplayScreenState();
-}
+  const GameplayScreen({super.key, required this.sessionId});
 
-class _GameplayScreenState extends ConsumerState<GameplayScreen> {
-  final SessionService _sessionService = SessionService();
-  GameType selectedGameType = GameType.sauspiel;
-
-  @override
-  void initState() {
-    super.initState();
-    // If you need to load the game type from somewhere, do it here
-    // For example:
-    // _loadInitialGameType();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final settingsAsync = ref.watch(settingsNotifierProvider);
-
-    return StreamBuilder<Session?>(
-      stream: _sessionService.getActiveSession(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(child: Text('Error: ${snapshot.error}')),
-          );
-        }
-
-        if (!snapshot.hasData) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        final session = snapshot.data!;
-
-        return settingsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => Center(child: Text('Error: $err')),
-          data: (settings) => Scaffold(
-            appBar: AppBar(
-              title: const Text('Spielverlauf'),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.stop),
-                  onPressed: () => _endSession(session),
-                ),
-              ],
-            ),
-            body: Column(
-              children: [
-                // Dealer indicator
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(
-                    'Geber: ${session.players[session.currentDealer]}',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-
-                // Balance overview
-                Card(
-                  margin: const EdgeInsets.all(8.0),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Aktueller Spielstand:',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ...session.players.map((player) {
-                          final balance = session.playerBalances[player] ?? 0;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(player),
-                                Text(
-                                  '${balance.toStringAsFixed(2)}€',
-                                  style: TextStyle(
-                                    color: balance >= 0 ? Colors.green : Colors.red,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Rounds list
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: session.rounds.length,
-                    itemBuilder: (context, index) {
-                      final round = session.rounds[index];
-                      return ListTile(
-                        title: Text('Runde ${index + 1}: ${round.gameType.name}'),
-                        subtitle: Text(_buildRoundDescription(round)),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-            floatingActionButton: FloatingActionButton(
-              onPressed: () => _showNewRoundDialog(session),
-              child: const Icon(Icons.add),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showNewRoundDialog(Session session) {
+  void _showNewRoundDialog(BuildContext context, Session session) {
     GameType? selectedGameType;
     String? selectedPlayer;
     String? selectedPartner;
@@ -269,9 +153,11 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                         Text(knockingPlayers.length.toString()),
                         IconButton(
                           icon: const Icon(Icons.add),
-                          onPressed: () => setState(() {
-                            knockingPlayers.add('klopfen');
-                          }),
+                          onPressed: knockingPlayers.length >= 4 
+                              ? null  // This will grey out the button
+                              : () => setState(() {
+                                    knockingPlayers.add('klopfen');
+                                  }),
                         ),
                         IconButton(
                           icon: const Icon(Icons.remove),
@@ -344,6 +230,17 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                 TextButton(
                   onPressed: () async {
                     if (selectedGameType != null && selectedPlayer != null) {
+                      // Check if it's a Sauspiel without partner
+                      if (selectedGameType == GameType.sauspiel && selectedPartner == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Bitte wähle einen Partner für das Sauspiel'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                        return;  // Don't proceed with saving
+                      }
+
                       final round = GameRound(
                         gameType: selectedGameType!,
                         mainPlayer: selectedPlayer!,
@@ -367,7 +264,7 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                         );
                         
                         // Add the round
-                        await _sessionService.addRound(widget.sessionId, round);
+                        await SessionService().addRound(session.id, round);
                         
                         // Close loading indicator and dialog
                         Navigator.of(context).pop(); // Close loading
@@ -392,142 +289,203 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
     );
   }
 
-  Future<void> _showSessionSummary(Session session) async {
-    // Calculate net balances between players
-    final Map<String, Map<String, double>> settlements = {};
-    
-    // Initialize settlements map
-    for (String player in session.players) {
-      settlements[player] = {};
-      for (String otherPlayer in session.players) {
-        if (player != otherPlayer) {
-          settlements[player]![otherPlayer] = 0.0;
-        }
-      }
-    }
-
-    // Find players with negative and positive balances
-    final negativeBalances = session.playerBalances.entries
-        .where((e) => e.value < 0)
-        .toList()
-        ..sort((a, b) => a.value.compareTo(b.value)); // Most negative first
-
-    final positiveBalances = session.playerBalances.entries
-        .where((e) => e.value > 0)
-        .toList()
-        ..sort((a, b) => b.value.compareTo(a.value)); // Most positive first
-
-    // For each negative balance, distribute to positive balances
-    for (var negative in negativeBalances) {
-      var remainingDebt = -negative.value; // Make positive for calculations
+  Future<void> _endSession(BuildContext context, String sessionId) async {
+    try {
+      await SessionService().endSession(sessionId);
+      if (!context.mounted) return;
       
-      for (var positive in positiveBalances) {
-        if (remainingDebt <= 0) break;
-        
-        var availableCredit = positive.value;
-        var transfer = min(remainingDebt, availableCredit);
-        
-        if (transfer > 0) {
-          settlements[negative.key]![positive.key] = transfer;
-          remainingDebt -= transfer;
-        }
-      }
+      Navigator.of(context).pushReplacementNamed('/statistics');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler: $e')),
+      );
     }
+  }
 
-    // Show the dialog
-    await showDialog(
+  Future<void> _showEndSessionDialog(BuildContext context, Session session) async {
+    return showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Spielabrechnung'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Endstand:', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...session.playerBalances.entries.map((e) => 
-                Text('${e.key}: ${e.value.toStringAsFixed(2)}€')),
-              const SizedBox(height: 16),
-              const Text('Ausgleichszahlungen:', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...settlements.entries.expand((player) => 
-                player.value.entries
-                    .where((payment) => payment.value > 0)
-                    .map((payment) => Text(
-                      '${player.key} zahlt an ${payment.key}: ${payment.value.toStringAsFixed(2)}€'
-                    ))
-              ),
-            ],
-          ),
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Text('🏁 '),
+            Text('Session beenden?'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Möchtest du die aktuelle Session beenden?'),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${session.rounds.length} Spiele gespielt 🎮\n'
+                  '${session.players.length} Spieler 👥',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () => _endSession(context, sessionId),
+            child: const Text('Beenden ✅'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildEndSessionDialog(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Spiel beenden'),
-      content: const Text('Möchtest du das Spiel wirklich beenden?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Abbrechen'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Beenden'),
-        ),
-      ],
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Session>(
+      stream: SessionService().getSession(sessionId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const CustomLoadingIndicator();
+        }
+
+        final session = snapshot.data!;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Aktuelle Session'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.stop_circle_outlined),
+                tooltip: 'Session beenden',
+                onPressed: () => _showEndSessionDialog(context, session),
+              ),
+            ],
+          ),
+          body: Column(
+            children: [
+              // Balance Overview Card
+              Card(
+                margin: const EdgeInsets.all(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Spielstand',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const Divider(),
+                      ...session.players.asMap().entries.map((entry) {
+                        final player = entry.value;
+                        final balance = session.playerBalances[player] ?? 0;
+                        final emoji = _playerEmojis[entry.key % _playerEmojis.length];
+                        
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    emoji!,
+                                    style: const TextStyle(fontSize: 24),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    player,
+                                    style: Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                '${balance.toStringAsFixed(2)}€',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: balance >= 0 ? Colors.green : Colors.red,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Games List
+              Expanded(
+                child: Card(
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Gespielte Runden',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text(
+                              '${session.rounds.length} Spiele',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: session.rounds.length,
+                          separatorBuilder: (context, index) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final round = session.rounds[index];
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                                child: Text('${index + 1}'),
+                              ),
+                              title: Text(
+                                '${round.gameType.name} - ${round.mainPlayer}'
+                                '${round.partner != null ? ' mit ${round.partner}' : ''}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              trailing: Text(
+                                '${round.value.toStringAsFixed(2)}€',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: round.isWon ? Colors.green : Colors.red,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          floatingActionButton: FloatingActionButton.large(
+            onPressed: () => _showNewRoundDialog(context, session),
+            child: const Icon(Icons.add, size: 32),
+          ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+        );
+      },
     );
-  }
-
-  Future<void> _endSession(Session session) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: _buildEndSessionDialog,
-    );
-
-    if (confirmed == true) {
-      await _showSessionSummary(session);
-      await _sessionService.endSession(session.id);
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/');
-    }
-  }
-
-  String _buildRoundDescription(GameRound round) {
-    final parts = <String>[];
-    
-    // Basic game info
-    parts.add('${round.mainPlayer} - ${round.gameType.name}');
-    
-    // Partner for Sauspiel
-    if (round.gameType == GameType.sauspiel && round.partner != null) {
-      parts.add('mit ${round.partner}');
-    }
-    
-    // Game result
-    parts.add(round.isWon ? 'Gewonnen' : 'Verloren');
-    
-    // Special conditions
-    if (round.isSchneider) parts.add('Schneider');
-    if (round.isSchwarz) parts.add('Schwarz');
-    
-    // Additional modifiers
-    if (round.knockingPlayers.isNotEmpty) {
-      parts.add('${round.knockingPlayers.length}x Klopfen');
-    }
-    if (round.kontraPlayers.isNotEmpty) parts.add('Kontra');
-    if (round.rePlayers.isNotEmpty) parts.add('Re');
-    
-    // Game value
-    parts.add('${round.value.toStringAsFixed(2)}€');
-    
-    return parts.join(' | ');
   }
 }

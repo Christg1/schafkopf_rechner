@@ -43,9 +43,37 @@ class MyApp extends ConsumerWidget {
         return MaterialApp(
           title: 'Schafkopf Rechner',
           theme: ThemeData(
-            primarySwatch: Colors.blue,
-            brightness: settings.isDarkMode ? Brightness.dark : Brightness.light,
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              brightness: Brightness.light,
+            ),
+            cardTheme: CardTheme(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            appBarTheme: const AppBarTheme(
+              elevation: 0,
+              centerTitle: true,
+            ),
           ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              brightness: Brightness.dark,
+            ),
+            cardTheme: CardTheme(
+              elevation: 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            scaffoldBackgroundColor: const Color(0xFF1A1A1A),
+          ),
+          themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
           home: const MainMenuScreen(),
           routes: {
             '/lobby': (context) => const LobbyScreen(),
