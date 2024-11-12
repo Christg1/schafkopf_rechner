@@ -469,18 +469,12 @@ class SessionDetailsSheet extends StatelessWidget {
     Map<String, Map<GameType, int>> playerGameTypes = {};
     Map<String, int> totalGamesPlayed = {};
     Map<String, int> gamesWon = {};
-    Map<String, int> kontraCount = {};
-    Map<String, int> reCount = {};
-    Map<String, int> klopfenCount = {};
 
     // Initialize maps for each player
     for (String player in session.players) {
       playerGameTypes[player] = {};
       totalGamesPlayed[player] = 0;
       gamesWon[player] = 0;
-      kontraCount[player] = 0;
-      reCount[player] = 0;
-      klopfenCount[player] = 0;
     }
 
     // Calculate statistics from rounds
@@ -493,17 +487,6 @@ class SessionDetailsSheet extends StatelessWidget {
       totalGamesPlayed[mainPlayer] = (totalGamesPlayed[mainPlayer] ?? 0) + 1;
       if (round.isWon) {
         gamesWon[mainPlayer] = (gamesWon[mainPlayer] ?? 0) + 1;
-      }
-
-      // Count Kontra/Re/Klopfen for all players
-      for (String player in round.kontraPlayers) {
-        kontraCount[player] = (kontraCount[player] ?? 0) + 1;
-      }
-      for (String player in round.rePlayers) {
-        reCount[player] = (reCount[player] ?? 0) + 1;
-      }
-      for (String player in round.knockingPlayers) {
-        klopfenCount[player] = (klopfenCount[player] ?? 0) + 1;
       }
     }
 
@@ -572,14 +555,6 @@ class SessionDetailsSheet extends StatelessWidget {
                     totalGamesPlayed[player] == 0 ? 0 :
                     ((gamesWon[player] ?? 0) / (totalGamesPlayed[player] ?? 1) * 100)
                         .toStringAsFixed(1) + '%'),
-                  
-                  // Special moves
-                  const SizedBox(height: 8),
-                  Text('Ansagen:', 
-                    style: Theme.of(context).textTheme.titleMedium),
-                  _buildStatRow('Kontra', kontraCount[player] ?? 0),
-                  _buildStatRow('Re', reCount[player] ?? 0),
-                  _buildStatRow('Klopfen', klopfenCount[player] ?? 0),
 
                   // Game types played
                   if ((playerGameTypes[player]?.isNotEmpty ?? false)) ...[
@@ -632,154 +607,80 @@ class _RankingsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Calculate all statistics
-        Map<String, double> totalEarnings = {};
+        // Initialize data structures
         Map<String, int> gamesPlayed = {};
         Map<String, int> gamesWon = {};
-        Map<String, Map<GameType, int>> playerGameTypes = {};
-        Map<String, Map<String, int>> duoGames = {};
-        Map<String, Map<String, int>> duoWins = {};
+        Map<String, double> totalEarnings = {};
+        Map<String, List<bool>> duoResults = {};  // Changed to track simple win/loss
 
         // Process all sessions
         for (var doc in snapshot.data!.docs) {
           final session = Session.fromFirestore(doc);
           
-          // Process all rounds in this session
-          for (var round in session.rounds) {  // This is List<GameRound>
-            final mainPlayer = round.mainPlayer;
-            
-            // Update games played and won
-            gamesPlayed[mainPlayer] = (gamesPlayed[mainPlayer] ?? 0) + 1;
+          for (var round in session.rounds) {
+            // Update player stats
+            gamesPlayed[round.mainPlayer] = (gamesPlayed[round.mainPlayer] ?? 0) + 1;
             if (round.isWon) {
-              gamesWon[mainPlayer] = (gamesWon[mainPlayer] ?? 0) + 1;
+              gamesWon[round.mainPlayer] = (gamesWon[round.mainPlayer] ?? 0) + 1;
             }
+            
+            // Update earnings
+            final earnings = session.playerBalances[round.mainPlayer] ?? 0;
+            totalEarnings[round.mainPlayer] = (totalEarnings[round.mainPlayer] ?? 0) + earnings;
 
-            // Track game types for favorite game calculation
-            playerGameTypes.putIfAbsent(mainPlayer, () => {});
-            playerGameTypes[mainPlayer]![round.gameType] = 
-                (playerGameTypes[mainPlayer]![round.gameType] ?? 0) + 1;
-
-            // Track duo stats for Sauspiel
+            // Track Sauspiel partnerships
             if (round.gameType == GameType.sauspiel && round.partner != null) {
-              final duo = [mainPlayer, round.partner!]..sort();
-              final duoKey = duo.join(' & ');
+              final players = [round.mainPlayer, round.partner!]..sort();
+              final duoKey = '${players[0]} & ${players[1]}';
               
-              duoGames.putIfAbsent(duoKey, () => {});
-              duoWins.putIfAbsent(duoKey, () => {});
-              
-              duoGames[duoKey]![round.gameType.name] = 
-                  (duoGames[duoKey]![round.gameType.name] ?? 0) + 1;
-              
-              if (round.isWon) {
-                duoWins[duoKey]![round.gameType.name] = 
-                    (duoWins[duoKey]![round.gameType.name] ?? 0) + 1;
-              }
+              duoResults.putIfAbsent(duoKey, () => []);
+              duoResults[duoKey]!.add(round.isWon);
             }
           }
-
-          // Update total earnings from session balances
-          session.playerBalances.forEach((player, balance) {
-            totalEarnings[player] = (totalEarnings[player] ?? 0.0) + balance;
-          });
         }
 
-        // Calculate win rates and averages
-        Map<String, double> winRates = {};
-        Map<String, double> avgEarnings = {};
-        Map<String, double> duoWinRates = {};
-        Map<String, String> favoriteGames = {};
+        // Calculate win rates
+        final winRates = gamesPlayed.map((player, games) {
+          final wins = gamesWon[player] ?? 0;
+          return MapEntry(player, games > 0 ? (wins / games * 100) : 0.0);
+        });
 
-        // Calculate player stats
-        gamesPlayed.forEach((player, games) {
-          if (games >= 5) {  // Minimum 5 games
-            winRates[player] = (gamesWon[player] ?? 0) / games * 100;
-            avgEarnings[player] = (totalEarnings[player] ?? 0) / games;
-          }
+        // Calculate average earnings
+        final avgEarnings = gamesPlayed.map((player, games) {
+          final earnings = totalEarnings[player] ?? 0;
+          return MapEntry(player, games > 0 ? (earnings / games) : 0.0);
         });
 
         // Calculate duo win rates
-        duoGames.forEach((duo, games) {
-          games.forEach((gameType, count) {
-            if (count >= 5) {  // Minimum 5 games together
-              final wins = duoWins[duo]?[gameType] ?? 0;
-              duoWinRates[duo] = wins / count * 100;
-            }
-          });
-        });
-
-        // Calculate favorite game types
-        playerGameTypes.forEach((player, types) {
-          double bestWinRate = 0;
-          GameType? bestType;
-          
-          types.forEach((type, count) {
-            if (count >= 5) {  // Minimum 5 games of this type
-              final typeGames = count;
-              final typeWins = types.entries
-                  .where((e) => e.key == type && e.value >= 5)
-                  .length;
-              final winRate = (typeWins / typeGames) * 100;
-              
-              if (winRate > bestWinRate) {
-                bestWinRate = winRate;
-                bestType = type;
-              }
-            }
-          });
-          
-          if (bestType != null) {
-            final gameName = bestType.toString().split('.').last;  // Safe way to get enum name
-            favoriteGames[player] = '$gameName (${bestWinRate.toStringAsFixed(1)}%)';
-          }
+        final duoWinRates = duoResults.map((duo, results) {
+          if (results.isEmpty) return MapEntry(duo, 0.0);
+          final wins = results.where((result) => result).length;
+          return MapEntry(duo, (wins / results.length) * 100);
         });
 
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildRankingCard(
+            if (winRates.isNotEmpty) _buildRankingCard(
               context,
-              'Beste Gewinnrate',
+              'Beste Gewinnrate 🎯',
               winRates.entries.toList(),
               suffix: '%',
               formatValue: (v) => v.toStringAsFixed(1),
             ),
-            
-            _buildRankingCard(
+            if (avgEarnings.isNotEmpty) _buildRankingCard(
               context,
-              'Höchster Durchschnittsgewinn',
+              'Höchster Durchschnittsgewinn 💰',
               avgEarnings.entries.toList(),
               prefix: '€',
               formatValue: (v) => v.toStringAsFixed(2),
             ),
-            
-            _buildRankingCard(
+            if (duoWinRates.isNotEmpty) _buildRankingCard(
               context,
-              'Meiste Spiele',
-              gamesPlayed.entries.toList(),
-              formatValue: (v) => v.toStringAsFixed(0),
-            ),
-            
-            _buildRankingCard(
-              context,
-              'Höchster Gesamtgewinn',
-              totalEarnings.entries.toList(),
-              prefix: '€',
-              formatValue: (v) => v.toStringAsFixed(2),
-            ),
-            
-            _buildRankingCard(
-              context,
-              'Bestes Duo',
+              'Bestes Duo 🤝',
               duoWinRates.entries.toList(),
               suffix: '%',
               formatValue: (v) => v.toStringAsFixed(1),
-            ),
-            
-            _buildRankingCard(
-              context,
-              'Lieblingsspiel',
-              favoriteGames.entries.toList(),
-              formatValue: (v) => v.toString(),
             ),
           ],
         );

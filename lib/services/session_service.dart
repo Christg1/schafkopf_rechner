@@ -53,6 +53,10 @@ class SessionService {
       final sessionDoc = await sessionRef.get();
       final session = Session.fromFirestore(sessionDoc);
       
+      // Add client-side timestamp to make each round unique
+      final roundData = round.toFirestore();
+      roundData['timestamp'] = Timestamp.now();
+      
       // Calculate new balances for this session
       final newBalances = BalanceCalculator.calculateNewBalances(
         currentBalances: session.playerBalances,
@@ -62,7 +66,7 @@ class SessionService {
 
       // Update session with new balances
       await sessionRef.update({
-        'rounds': FieldValue.arrayUnion([round.toFirestore()]),
+        'rounds': FieldValue.arrayUnion([roundData]),
         'playerBalances': newBalances,
         'currentDealer': (session.currentDealer + 1) % session.players.length,
         'isActive': true,

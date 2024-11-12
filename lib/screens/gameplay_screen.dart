@@ -306,24 +306,28 @@ class GameplayScreen extends StatelessWidget {
   Future<void> _showEndSessionDialog(BuildContext context, Session session) async {
     // Calculate who owes whom
     List<String> debtMessages = [];
-    for (var i = 0; i < session.players.length; i++) {
-      for (var j = i + 1; j < session.players.length; j++) {
-        final player1 = session.players[i];
-        final player2 = session.players[j];
-        final balance1 = session.playerBalances[player1] ?? 0;
-        final balance2 = session.playerBalances[player2] ?? 0;
-        
-        if (balance1 > balance2) {
-          final debt = ((balance1 - balance2) / 2).abs();
-          if (debt >= 0.01) { // Only show if debt is at least 1 cent
-            debtMessages.add('${player2} schuldet ${player1} ${debt.toStringAsFixed(2)}€');
-          }
-        } else if (balance2 > balance1) {
-          final debt = ((balance2 - balance1) / 2).abs();
-          if (debt >= 0.01) {
-            debtMessages.add('${player1} schuldet ${player2} ${debt.toStringAsFixed(2)}€');
-          }
-        }
+    
+    // Find player with highest balance (they will be owed money)
+    String? highestBalancePlayer;
+    double highestBalance = double.negativeInfinity;
+    
+    for (var player in session.players) {
+      final balance = session.playerBalances[player] ?? 0;
+      if (balance > highestBalance) {
+        highestBalance = balance;
+        highestBalancePlayer = player;
+      }
+    }
+
+    // Calculate what others owe to the winner
+    for (var player in session.players) {
+      if (player == highestBalancePlayer) continue;
+      
+      final playerBalance = session.playerBalances[player] ?? 0;
+      final debt = (highestBalance - playerBalance) / 2;
+      
+      if (debt >= 0.01) { // Only show if debt is at least 1 cent
+        debtMessages.add('${player} schuldet ${highestBalancePlayer} ${debt.toStringAsFixed(2)}€');
       }
     }
 

@@ -1,4 +1,5 @@
 import 'game_types.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class GameRound {
   final String mainPlayer;
@@ -12,6 +13,7 @@ class GameRound {
   final List<String> kontraPlayers;
   final List<String> rePlayers;
   final double value;
+  final DateTime? timestamp;
 
   GameRound({
     required this.mainPlayer,
@@ -25,6 +27,7 @@ class GameRound {
     required this.kontraPlayers,
     required this.rePlayers,
     required this.value,
+    this.timestamp,
   });
 
   factory GameRound.fromFirestore(Map<String, dynamic> map) {
@@ -44,6 +47,7 @@ class GameRound {
       kontraPlayers: List<String>.from(map['kontraPlayers'] ?? []),
       rePlayers: List<String>.from(map['rePlayers'] ?? []),
       value: (map['value'] as num).toDouble(),
+      timestamp: (map['timestamp'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -60,6 +64,7 @@ class GameRound {
       'kontraPlayers': kontraPlayers,
       'rePlayers': rePlayers,
       'value': value,
+      'timestamp': timestamp != null ? Timestamp.fromDate(timestamp!) : null,
     };
   }
 }
