@@ -17,14 +17,14 @@ class StatisticsScreen extends StatelessWidget {
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Spieler'),
-              Tab(text: 'Allgemein'),
+              Tab(text: 'Sessions'),
             ],
           ),
         ),
         body: TabBarView(
           children: [
             _PlayerStatisticsTab(),
-            _GeneralStatisticsTab(),
+            _SessionsStatisticsTab(),
           ],
         ),
       ),
@@ -37,40 +37,69 @@ class _PlayerStatisticsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('players').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+      builder: (context, playerSnapshot) {
+        if (playerSnapshot.hasError) {
+          return Center(child: Text('Error: ${playerSnapshot.error}'));
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (playerSnapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        return ListView.builder(
-          itemCount: snapshot.data?.docs.length ?? 0,
-          itemBuilder: (context, index) {
-            final playerDoc = snapshot.data!.docs[index];
-            final playerData = playerDoc.data() as Map<String, dynamic>;
-            
-            return Card(
-              margin: const EdgeInsets.all(8.0),
-              child: InkWell(
-                onTap: () => _showPlayerDetails(context, playerDoc.id, playerData),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        playerData['name'] as String,
-                        style: Theme.of(context).textTheme.titleLarge,
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('sessions')
+              .orderBy('date', descending: true)
+              .snapshots(),
+          builder: (context, sessionSnapshot) {
+            if (sessionSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            Map<String, double> totalBalances = {};
+            for (var sessionDoc in sessionSnapshot.data?.docs ?? []) {
+              final session = Session.fromFirestore(sessionDoc);
+              session.playerBalances.forEach((player, balance) {
+                totalBalances[player] = (totalBalances[player] ?? 0.0) + balance;
+              });
+            }
+
+            return ListView.builder(
+              itemCount: playerSnapshot.data?.docs.length ?? 0,
+              itemBuilder: (context, index) {
+                final playerDoc = playerSnapshot.data!.docs[index];
+                final playerData = playerDoc.data() as Map<String, dynamic>;
+                final playerName = playerData['name'] as String;
+                
+                return Card(
+                  margin: const EdgeInsets.all(8.0),
+                  child: InkWell(
+                    onTap: () => _showPlayerDetails(
+                      context, 
+                      playerDoc.id, 
+                      playerData,
+                      totalBalances[playerName] ?? 0.0
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            playerName,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 8),
+                          _buildQuickStats(
+                            playerData,
+                            totalBalances[playerName] ?? 0.0
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      _buildQuickStats(playerData),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
         );
@@ -78,7 +107,7 @@ class _PlayerStatisticsTab extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickStats(Map<String, dynamic> playerData) {
+  Widget _buildQuickStats(Map<String, dynamic> playerData, double totalBalance) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
@@ -92,7 +121,8 @@ class _PlayerStatisticsTab extends StatelessWidget {
         ),
         _StatItem(
           label: 'Bilanz',
-          value: '${(playerData['totalEarnings'] ?? 0).toStringAsFixed(2)}€',
+          value: '${totalBalance.toStringAsFixed(2)}€',
+          valueColor: totalBalance >= 0 ? Colors.green : Colors.red,
         ),
       ],
     );
@@ -105,7 +135,7 @@ class _PlayerStatisticsTab extends StatelessWidget {
     return ((gamesWon / gamesPlayed) * 100).toStringAsFixed(1);
   }
 
-  void _showPlayerDetails(BuildContext context, String playerId, Map<String, dynamic> playerData) {
+  void _showPlayerDetails(BuildContext context, String playerId, Map<String, dynamic> playerData, double totalBalance) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -117,6 +147,7 @@ class _PlayerStatisticsTab extends StatelessWidget {
           playerId: playerId,
           playerData: playerData,
           scrollController: controller,
+          totalBalance: totalBalance,
         ),
       ),
     );
@@ -178,41 +209,66 @@ class PlayerDetailsSheet extends StatelessWidget {
   final String playerId;
   final Map<String, dynamic> playerData;
   final ScrollController scrollController;
+  final double totalBalance;
 
   const PlayerDetailsSheet({
     super.key,
     required this.playerId,
     required this.playerData,
     required this.scrollController,
+    required this.totalBalance,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: ListView(
-        controller: scrollController,
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          Text(
-            playerData['name'] as String,
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 24),
-          
-          _buildDetailedStats(),
-          const SizedBox(height: 16),
-          
-          _buildGameTypeStats(),
-          const SizedBox(height: 16),
-          
-          _buildRecentGames(),
-        ],
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('sessions')
+            .where('players', arrayContains: playerData['name'])
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          // Calculate game type stats across all sessions
+          Map<GameType, int> gameTypeStats = {};
+          for (var sessionDoc in snapshot.data!.docs) {
+            final session = Session.fromFirestore(sessionDoc);
+            for (var round in session.rounds) {
+              if (round.mainPlayer == playerData['name']) {
+                gameTypeStats[round.gameType] = (gameTypeStats[round.gameType] ?? 0) + 1;
+              }
+            }
+          }
+
+          return ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              Text(
+                playerData['name'] as String,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 24),
+              
+              _buildDetailedStats(totalBalance),
+              const SizedBox(height: 16),
+              
+              _buildGameTypeStats(gameTypeStats),
+              const SizedBox(height: 16),
+              
+              _buildRecentGames(),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildDetailedStats() {
+  Widget _buildDetailedStats(double totalBalance) {
     final gamesPlayed = playerData['gamesPlayed'] as int? ?? 0;
     final gamesParticipated = playerData['gamesParticipated'] as int? ?? 0;
     final gamesWon = playerData['gamesWon'] as int? ?? 0;
@@ -220,9 +276,8 @@ class PlayerDetailsSheet extends StatelessWidget {
         ? (gamesPlayed / gamesParticipated * 100) 
         : 0.0;
     
-    final totalEarnings = playerData['totalEarnings'] as double? ?? 0.0;
     final avgEarnings = (gamesPlayed + gamesParticipated) > 0 
-        ? totalEarnings / (gamesPlayed + gamesParticipated)
+        ? totalBalance / (gamesPlayed + gamesParticipated)
         : 0.0;
 
     return Column(
@@ -237,15 +292,13 @@ class PlayerDetailsSheet extends StatelessWidget {
         _DetailRow('Teilgenommen', gamesParticipated.toString()),
         _DetailRow('Spielrate', '${playRate.toStringAsFixed(1)}%'),
         _DetailRow('Gesamtspiele', '${gamesPlayed + gamesParticipated}'),
-        _DetailRow('Gesamtbilanz', '${totalEarnings.toStringAsFixed(2)}€'),
+        _DetailRow('Gesamtbilanz', '${totalBalance.toStringAsFixed(2)}€'),
         _DetailRow('Durchschnitt pro Spiel', '${avgEarnings.toStringAsFixed(2)}€'),
       ],
     );
   }
 
-  Widget _buildGameTypeStats() {
-    final gameTypeStats = playerData['gameTypeStats'] as Map<String, dynamic>? ?? {};
-    
+  Widget _buildGameTypeStats(Map<GameType, int> gameTypeStats) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -253,7 +306,7 @@ class PlayerDetailsSheet extends StatelessWidget {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         ...GameType.values.map((type) {
-          final count = gameTypeStats[type.name] as int? ?? 0;
+          final count = gameTypeStats[type] ?? 0;
           return _DetailRow(type.name, count.toString());
         }),
       ],
@@ -301,7 +354,7 @@ class PlayerDetailsSheet extends StatelessWidget {
   }
 }
 
-class _GeneralStatisticsTab extends StatelessWidget {
+class _SessionsStatisticsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
@@ -326,24 +379,116 @@ class _GeneralStatisticsTab extends StatelessWidget {
               return Card(
                 child: ListTile(
                   title: Text(DateFormat('dd.MM.yyyy HH:mm').format(session.date)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Spieler: ${session.players.join(", ")}'),
-                      Text('Runden: ${session.rounds.length}'),
-                      const SizedBox(height: 4),
-                      ...session.playerBalances.entries.map((e) => 
-                        Text('${e.key}: ${e.value.toStringAsFixed(2)}€')
-                      ),
-                    ],
-                  ),
-                  isThreeLine: true,
+                  subtitle: Text('Spieler: ${session.players.join(", ")}'),
+                  trailing: Text('${session.rounds.length} Runden'),
+                  onTap: () => _showSessionDetails(context, session),
                 ),
               );
             }),
           ],
         );
       },
+    );
+  }
+
+  void _showSessionDetails(BuildContext context, Session session) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        builder: (_, controller) => SessionDetailsSheet(
+          session: session,
+          scrollController: controller,
+        ),
+      ),
+    );
+  }
+}
+
+class SessionDetailsSheet extends StatelessWidget {
+  final Session session;
+  final ScrollController scrollController;
+
+  const SessionDetailsSheet({
+    super.key,
+    required this.session,
+    required this.scrollController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.all(16.0),
+        children: [
+          Text(
+            'Session vom ${DateFormat('dd.MM.yyyy HH:mm').format(session.date)}',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 16),
+          
+          // Session overview
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Übersicht', 
+                    style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text('Anzahl Runden: ${session.rounds.length}'),
+                  Text('Grundwert: ${session.baseValue}€'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Player statistics for this session
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Spieler', 
+                    style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  ...session.players.map((player) {
+                    final balance = session.playerBalances[player] ?? 0.0;
+                    final gamesPlayed = session.rounds
+                        .where((r) => r.mainPlayer == player)
+                        .length;
+                    final gamesWon = session.rounds
+                        .where((r) => r.mainPlayer == player && r.isWon)
+                        .length;
+                    
+                    return ListTile(
+                      title: Text(player),
+                      subtitle: Text(
+                        'Gespielt: $gamesPlayed, Gewonnen: $gamesWon'
+                      ),
+                      trailing: Text(
+                        '${balance.toStringAsFixed(2)}€',
+                        style: TextStyle(
+                          color: balance >= 0 ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 } 

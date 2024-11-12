@@ -51,60 +51,39 @@ class SessionService {
     try {
       final sessionRef = _db.collection('sessions').doc(sessionId);
       final sessionDoc = await sessionRef.get();
-
-      if (!sessionDoc.exists) {
-        throw Exception('Session not found');
-      }
-
       final session = Session.fromFirestore(sessionDoc);
       
-      // Calculate new balances
+      // Calculate new balances for this session
       final newBalances = BalanceCalculator.calculateNewBalances(
         currentBalances: session.playerBalances,
         round: round,
         players: session.players,
       );
 
-      // Update session
+      // Update session with new balances
       await sessionRef.update({
         'rounds': FieldValue.arrayUnion([round.toFirestore()]),
         'playerBalances': newBalances,
         'currentDealer': (session.currentDealer + 1) % session.players.length,
+        'isActive': true,
       });
 
-      // Update player statistics
+      // Update lifetime statistics for each player
       for (String playerName in session.players) {
         final playerRef = _db.collection('players').doc(playerName);
-        final playerDoc = await playerRef.get();
-        final currentData = playerDoc.data() ?? {};
         
-        // Get current game type stats
-        Map<String, int> gameTypeStats = Map<String, int>.from(currentData['gameTypeStats'] ?? {});
-        
-        // Update game type count for the main player
-        if (playerName == round.mainPlayer) {
-          final gameTypeName = round.gameType.name;
-          gameTypeStats[gameTypeName] = (gameTypeStats[gameTypeName] ?? 0) + 1;
-        }
-
-        // Calculate balance change for this player
-        final oldBalance = session.playerBalances[playerName] ?? 0.0;
-        final newBalance = newBalances[playerName] ?? 0.0;
-        final balanceChange = newBalance - oldBalance;
-
-        await playerRef.set({
-          'name': playerName,
-          'gamesParticipated': (currentData['gamesParticipated'] ?? 0) + 1,
-          'gamesPlayed': (currentData['gamesPlayed'] ?? 0) + (playerName == round.mainPlayer ? 1 : 0),
-          'gamesWon': (currentData['gamesWon'] ?? 0) + 
-              (playerName == round.mainPlayer && round.isWon ? 1 : 0),
-          'totalEarnings': (currentData['totalEarnings'] ?? 0.0) + balanceChange,
-          'gameTypeStats': gameTypeStats,
-        }, SetOptions(merge: true));
+        await playerRef.update({
+          'totalEarnings': FieldValue.increment(newBalances[playerName] ?? 0.0),
+          'gamesParticipated': FieldValue.increment(1),
+          if (playerName == round.mainPlayer) ... {
+            'gamesPlayed': FieldValue.increment(1),
+            'gamesWon': FieldValue.increment(round.isWon ? 1 : 0),
+            'gameTypeStats.${round.gameType.name}': FieldValue.increment(1),
+          },
+        });
       }
 
     } catch (e) {
-      print('Error in addRound: $e');
       rethrow;
     }
   }

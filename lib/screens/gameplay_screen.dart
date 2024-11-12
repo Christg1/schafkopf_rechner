@@ -151,7 +151,7 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
     bool isWon = true;
     bool isSchneider = false;
     bool isSchwarz = false;
-    final knockingPlayers = <String>{};
+    final knockingPlayers = <String>[];
     final kontraPlayers = <String>{};
     final rePlayers = <String>{};
 
@@ -163,7 +163,7 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
             double currentValue = GameCalculator.calculateGameValue(
               gameType: selectedGameType ?? GameType.sauspiel,
               baseValue: session.baseValue,
-              knockingPlayers: knockingPlayers.toList(),
+              knockingPlayers: knockingPlayers,
               kontraPlayers: kontraPlayers.toList(),
               rePlayers: rePlayers.toList(),
               isSchneider: isSchneider,
@@ -264,17 +264,22 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                     // Klopfen Selection
                     Row(
                       children: [
-                        const Text('Klopfen: '),
-                        IconButton(
-                          icon: const Icon(Icons.remove),
-                          onPressed: knockingPlayers.isNotEmpty 
-                              ? () => setState(() => knockingPlayers.clear()) 
-                              : null,
-                        ),
-                        Text('${knockingPlayers.length}'),
+                        const Text('Klopfen:'),
+                        const SizedBox(width: 8),
+                        Text(knockingPlayers.length.toString()),
                         IconButton(
                           icon: const Icon(Icons.add),
-                          onPressed: () => setState(() => knockingPlayers.add('klopfen')),
+                          onPressed: () => setState(() {
+                            knockingPlayers.add('klopfen');
+                          }),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          onPressed: knockingPlayers.isEmpty
+                              ? null
+                              : () => setState(() {
+                                    knockingPlayers.removeLast();
+                                  }),
                         ),
                       ],
                     ),
@@ -347,7 +352,7 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                         isWon: isWon,
                         isSchneider: isSchneider,
                         isSchwarz: isSchwarz,
-                        knockingPlayers: knockingPlayers.toList(),
+                        knockingPlayers: knockingPlayers,
                         kontraPlayers: kontraPlayers.toList(),
                         rePlayers: rePlayers.toList(),
                         value: currentValue,
