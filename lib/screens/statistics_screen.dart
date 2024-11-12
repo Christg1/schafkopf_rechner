@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:schafkopf_rechner/utils/currency_formatter.dart';
 import '../models/game_types.dart';
 import '../models/session.dart';
 
@@ -84,18 +85,15 @@ class _PlayerStatisticsTab extends StatelessWidget {
       children: [
         _StatItem(
           label: 'Spiele',
-          value: playerData['gamesPlayed']?.toString() ?? '0',
+          value: '${playerData['gamesParticipated'] ?? 0}',
         ),
         _StatItem(
-          label: 'Gewonnen',
+          label: 'Gewinnrate',
           value: '${_calculateWinRate(playerData)}%',
         ),
         _StatItem(
           label: 'Bilanz',
-          value: '${(playerData['totalEarnings'] as double? ?? 0).toStringAsFixed(2)}€',
-          valueColor: (playerData['totalEarnings'] as double? ?? 0) >= 0 
-              ? Colors.green 
-              : Colors.red,
+          value: '${(playerData['totalEarnings'] ?? 0).toStringAsFixed(2)}€',
         ),
       ],
     );
@@ -219,8 +217,13 @@ class PlayerDetailsSheet extends StatelessWidget {
     final gamesPlayed = playerData['gamesPlayed'] as int? ?? 0;
     final gamesParticipated = playerData['gamesParticipated'] as int? ?? 0;
     final gamesWon = playerData['gamesWon'] as int? ?? 0;
+    final playRate = gamesParticipated > 0 
+        ? (gamesPlayed / gamesParticipated * 100) 
+        : 0.0;
+    
+    final totalEarnings = playerData['totalEarnings'] as double? ?? 0.0;
     final avgEarnings = (gamesPlayed + gamesParticipated) > 0 
-        ? (playerData['totalEarnings'] as double? ?? 0) / (gamesPlayed + gamesParticipated) 
+        ? totalEarnings / (gamesPlayed + gamesParticipated)
         : 0.0;
 
     return Column(
@@ -233,8 +236,9 @@ class PlayerDetailsSheet extends StatelessWidget {
         _DetailRow('Davon gewonnen', gamesWon.toString()),
         _DetailRow('Gewinnrate', '${_calculateWinRate(playerData)}%'),
         _DetailRow('Teilgenommen', gamesParticipated.toString()),
+        _DetailRow('Spielrate', '${playRate.toStringAsFixed(1)}%'),
         _DetailRow('Gesamtspiele', '${gamesPlayed + gamesParticipated}'),
-        _DetailRow('Gesamtbilanz', '${(playerData['totalEarnings'] as double? ?? 0).toStringAsFixed(2)}€'),
+        _DetailRow('Gesamtbilanz', '${totalEarnings.toStringAsFixed(2)}€'),
         _DetailRow('Durchschnitt pro Spiel', '${avgEarnings.toStringAsFixed(2)}€'),
       ],
     );

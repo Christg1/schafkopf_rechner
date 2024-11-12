@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:schafkopf_rechner/models/game_types.dart';
 import '../models/session.dart';
 import '../models/game_round.dart';
 import '../utils/balance_calculator.dart';
@@ -10,27 +9,24 @@ class SessionService {
   // Create new session
   Future<String> createSession({
     required List<String> players,
-    required int baseValue,
+    required double baseValue,
     required int initialDealer,
   }) async {
-    // Normalize player names
-    final normalizedPlayers = players.map((name) => name.trim()).toList();
-    
     final sessionDoc = await _db.collection('sessions').add({
       'date': FieldValue.serverTimestamp(),
-      'players': normalizedPlayers,
-      'baseValue': baseValue,
+      'players': players,
+      'baseValue': baseValue, // Store as euros
       'rounds': [],
       'playerBalances': Map.fromIterables(
-        normalizedPlayers, 
-        List.filled(normalizedPlayers.length, 0.0)
+        players, 
+        List.filled(players.length, 0)
       ),
       'currentDealer': initialDealer,
       'isActive': true,
     });
 
     // Create or update player documents for statistics
-    for (String player in normalizedPlayers) {
+    for (String player in players) {
       // Use normalized name as document ID to prevent duplicates
       final docId = player.toLowerCase();
       await _db.collection('players').doc(docId).set({
@@ -53,7 +49,7 @@ class SessionService {
     final sessionDoc = await _db.collection('sessions').doc(sessionId).get();
     final session = Session.fromFirestore(sessionDoc);
     
-    // Calculate new balances using BalanceCalculator
+    // Calculate new balances
     Map<String, double> newBalances = BalanceCalculator.calculateNewBalances(
       currentBalances: session.playerBalances,
       round: round,

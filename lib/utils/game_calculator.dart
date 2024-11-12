@@ -3,16 +3,9 @@ import '../models/game_types.dart';
 
 class GameCalculator {
   /// Calculates the value of a game round based on various factors
-  /// 
-  /// [baseValue] is the basic point value for the game
-  /// [knockingPlayers] list of players who knocked (each doubles the value)
-  /// [kontraPlayers] list of players who called Kontra (doubles the value)
-  /// [rePlayers] list of players who called Re (doubles the value)
-  /// [isSchneider] adds baseValue if true
-  /// [isSchwarz] adds baseValue if true
   static double calculateGameValue({
     required GameType gameType,
-    required int baseValue,
+    required double baseValue,
     required List<String> knockingPlayers,
     required List<String> kontraPlayers,
     required List<String> rePlayers,
@@ -20,38 +13,35 @@ class GameCalculator {
     required bool isSchwarz,
   }) {
     // Start with base value
-    double value = baseValue.toDouble();
-    
-    // Double the base value for solo games and ramsch
-    if (gameType != GameType.sauspiel) {
-      value = baseValue * 2;
-    }
+    double value = double.parse(baseValue.toStringAsFixed(2));
+    double multiplier = 1.0;
 
-    // Apply knocks (each knock doubles)
-    if (knockingPlayers.isNotEmpty) {
-      value *= pow(2, knockingPlayers.length);
-    }
+    // Add multiplier for knocking players (x2 for each)
+    multiplier *= pow(2, knockingPlayers.length).toDouble();
 
-    // Apply Kontra (doubles)
-    if (kontraPlayers.isNotEmpty) {
-      value *= 2;
-    }
+    // Add multiplier for kontra/re (x2 each)
+    if (kontraPlayers.isNotEmpty) multiplier *= 2;
+    if (rePlayers.isNotEmpty) multiplier *= 2;
 
-    // Apply Re (doubles)
-    if (rePlayers.isNotEmpty) {
-      value *= 2;
-    }
+    // Calculate base game value with multipliers
+    double finalValue = value * multiplier;
 
-    // Add Schneider bonus (adds base value)
-    if (isSchneider) {
-      value += baseValue;
-    }
+    // Add baseValue for Schneider and Schwarz (not multiplied)
+    if (isSchneider) finalValue += baseValue;
+    if (isSchwarz) finalValue += baseValue;
 
-    // Add Schwarz bonus (adds base value)
-    if (isSchwarz) {
-      value += baseValue;
+    // Apply game type multiplier
+    switch (gameType) {
+      case GameType.sauspiel:
+        return double.parse(finalValue.toStringAsFixed(2));
+      case GameType.wenz:
+      case GameType.farbwenz:
+      case GameType.geier:
+      case GameType.farbgeier:
+      case GameType.farbspiel:
+        return double.parse((finalValue * 2).toStringAsFixed(2));  // Solo games are worth double
+      case GameType.ramsch:
+        return double.parse(finalValue.toStringAsFixed(2));
     }
-
-    return value;
   }
 } 

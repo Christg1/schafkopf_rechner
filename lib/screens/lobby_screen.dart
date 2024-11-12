@@ -13,15 +13,21 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   final List<TextEditingController> _playerControllers = 
     List.generate(4, (index) => TextEditingController());
-  final _baseValueController = TextEditingController(text: '10');
+  final _baseValueController = TextEditingController(text: '0.10');
   int _selectedDealerIndex = 0;
+  bool _isDisposed = false;
 
   @override
   void dispose() {
+    _isDisposed = true;
     for (var controller in _playerControllers) {
-      controller.dispose();
+      if (controller.hasListeners) {
+        controller.dispose();
+      }
     }
-    _baseValueController.dispose();
+    if (_baseValueController.hasListeners) {
+      _baseValueController.dispose();
+    }
     super.dispose();
   }
 
@@ -106,10 +112,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       TextField(
                         controller: _baseValueController,
                         decoration: const InputDecoration(
-                          labelText: 'Grundwert (Cent)',
+                          labelText: 'Grundwert (€)',
                           border: OutlineInputBorder(),
+                          prefixText: '€ ',
+                          hintText: '0.10',
                         ),
-                        keyboardType: TextInputType.number,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         onChanged: (_) => setState(() {}),
                       ),
 
@@ -211,16 +219,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
     if (names.toSet().length != 4) return false;
 
     // Check if base value is valid
-    final baseValue = int.tryParse(_baseValueController.text);
-    if (baseValue == null || baseValue <= 0) return false;
-
-    return true;
+    try {
+      final baseValueText = _baseValueController.text.replaceAll(',', '.');
+      final baseValueEuro = double.parse(baseValueText);
+      return baseValueEuro > 0;
+    } catch (e) {
+      return false;
+    }
   }
 
   Future<void> _startSession() async {
     if (_canStartSession()) {
       final players = _playerControllers.map((c) => c.text.trim()).toList();
-      final baseValue = int.parse(_baseValueController.text);
+      final baseValue = double.parse(_baseValueController.text.replaceAll(',', '.'));
       
       try {
         final sessionId = await SessionService().createSession(
@@ -231,13 +242,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
         if (!mounted) return;
         
-        Navigator.pushReplacement(
+        Navigator.pushReplacementNamed(
           context,
-          MaterialPageRoute(
-            builder: (context) => GameplayScreen(sessionId: sessionId),
-          ),
+          '/gameplay',
+          arguments: {'sessionId': sessionId},
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler: $e')),
         );

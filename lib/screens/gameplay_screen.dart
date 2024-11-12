@@ -1,14 +1,17 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/game_types.dart';
 import '../models/game_round.dart';
 import '../utils/game_calculator.dart';
 import '../services/session_service.dart';
 import '../models/session.dart';
+import '../utils/currency_formatter.dart';
+import '../providers/settings_provider.dart';
 
-class GameplayScreen extends StatefulWidget {
+
+class GameplayScreen extends ConsumerStatefulWidget {
   final String sessionId;
   
   const GameplayScreen({
@@ -17,14 +20,25 @@ class GameplayScreen extends StatefulWidget {
   });
 
   @override
-  State<GameplayScreen> createState() => _GameplayScreenState();
+  ConsumerState<GameplayScreen> createState() => _GameplayScreenState();
 }
 
-class _GameplayScreenState extends State<GameplayScreen> {
+class _GameplayScreenState extends ConsumerState<GameplayScreen> {
   final SessionService _sessionService = SessionService();
+  GameType selectedGameType = GameType.sauspiel;
+
+  @override
+  void initState() {
+    super.initState();
+    // If you need to load the game type from somewhere, do it here
+    // For example:
+    // _loadInitialGameType();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final settingsAsync = ref.watch(settingsNotifierProvider);
+
     return StreamBuilder<Session?>(
       stream: _sessionService.getActiveSession(),
       builder: (context, snapshot) {
@@ -42,85 +56,89 @@ class _GameplayScreenState extends State<GameplayScreen> {
 
         final session = snapshot.data!;
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Spielverlauf'),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.stop),
-                onPressed: () => _endSession(session),
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              // Dealer indicator
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  'Geber: ${session.players[session.currentDealer]}',
-                  style: Theme.of(context).textTheme.titleLarge,
+        return settingsAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, stack) => Center(child: Text('Error: $err')),
+          data: (settings) => Scaffold(
+            appBar: AppBar(
+              title: const Text('Spielverlauf'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.stop),
+                  onPressed: () => _endSession(session),
                 ),
-              ),
-
-              // Balance overview
-              Card(
-                margin: const EdgeInsets.all(8.0),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Aktueller Spielstand:',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...session.players.map((player) {
-                        final balance = session.playerBalances[player] ?? 0;
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(player),
-                              Text(
-                                '${(balance / 100).toStringAsFixed(2)}€',
-                                style: TextStyle(
-                                  color: balance >= 0 ? Colors.green : Colors.red,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
+              ],
+            ),
+            body: Column(
+              children: [
+                // Dealer indicator
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    'Geber: ${session.players[session.currentDealer]}',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
-              ),
 
-              // Rounds list
-              Expanded(
-                child: ListView.builder(
-                  itemCount: session.rounds.length,
-                  itemBuilder: (context, index) {
-                    final round = session.rounds[index];
-                    return ListTile(
-                      title: Text('Runde ${index + 1}: ${round.gameType.name}'),
-                      subtitle: Text(_buildRoundDescription(round)),
-                    );
-                  },
+                // Balance overview
+                Card(
+                  margin: const EdgeInsets.all(8.0),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Aktueller Spielstand:',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...session.players.map((player) {
+                          final balance = session.playerBalances[player] ?? 0;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(player),
+                                Text(
+                                  '${balance.toStringAsFixed(2)}€',
+                                  style: TextStyle(
+                                    color: balance >= 0 ? Colors.green : Colors.red,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => _showNewRoundDialog(session),
-            child: const Icon(Icons.add),
+
+                // Rounds list
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: session.rounds.length,
+                    itemBuilder: (context, index) {
+                      final round = session.rounds[index];
+                      return ListTile(
+                        title: Text('Runde ${index + 1}: ${round.gameType.name}'),
+                        subtitle: Text(_buildRoundDescription(round)),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+            floatingActionButton: FloatingActionButton(
+              onPressed: () => _showNewRoundDialog(session),
+              child: const Icon(Icons.add),
+            ),
           ),
         );
       },
@@ -143,17 +161,15 @@ class _GameplayScreenState extends State<GameplayScreen> {
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            final currentValue = selectedGameType != null 
-                ? GameCalculator.calculateGameValue(
-                    gameType: selectedGameType!,
-                    baseValue: session.baseValue,
-                    knockingPlayers: knockingPlayers.toList(),
-                    kontraPlayers: kontraPlayers.toList(),
-                    rePlayers: rePlayers.toList(),
-                    isSchneider: isSchneider,
-                    isSchwarz: isSchwarz,
-                  )
-                : 0.0;
+            double currentValue = GameCalculator.calculateGameValue(
+              gameType: selectedGameType ?? GameType.sauspiel,
+              baseValue: session.baseValue,
+              knockingPlayers: knockingPlayers.toList(),
+              kontraPlayers: kontraPlayers.toList(),
+              rePlayers: rePlayers.toList(),
+              isSchneider: isSchneider,
+              isSchwarz: isSchwarz,
+            );
 
             return AlertDialog(
               title: const Text('Neue Runde'),
@@ -323,7 +339,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                           children: [
                             const Text('Aktueller Spielwert:'),
                             Text(
-                              '${(currentValue / 100).toStringAsFixed(2)} €',
+                              '${currentValue.toStringAsFixed(2)} €',
                               style: Theme.of(context).textTheme.headlineSmall,
                             ),
                           ],
@@ -414,14 +430,14 @@ class _GameplayScreenState extends State<GameplayScreen> {
             children: [
               const Text('Endstand:', style: TextStyle(fontWeight: FontWeight.bold)),
               ...session.playerBalances.entries.map((e) => 
-                Text('${e.key}: ${(e.value / 100).toStringAsFixed(2)}€')),
+                Text('${e.key}: ${e.value.toStringAsFixed(2)}€')),
               const SizedBox(height: 16),
               const Text('Ausgleichszahlungen:', style: TextStyle(fontWeight: FontWeight.bold)),
               ...settlements.entries.expand((player) => 
                 player.value.entries
                     .where((payment) => payment.value > 0)
                     .map((payment) => Text(
-                      '${player.key} zahlt an ${payment.key}: ${(payment.value / 100).toStringAsFixed(2)}€'
+                      '${player.key} zahlt an ${payment.key}: ${payment.value.toStringAsFixed(2)}€'
                     ))
               ),
             ],
@@ -494,7 +510,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
     if (round.rePlayers.isNotEmpty) parts.add('Re');
     
     // Game value
-    parts.add('${(round.value / 100).toStringAsFixed(2)}€');
+    parts.add('${round.value.toStringAsFixed(2)}€');
     
     return parts.join(' | ');
   }

@@ -3,7 +3,7 @@ import '../models/game_types.dart';
 
 class BalanceCalculator {
   /// Calculates new balances for all players after a game round
-  /// Returns a map of player names to their new balances
+  /// Returns a map of player names to their new balances (in euros)
   static Map<String, double> calculateNewBalances({
     required Map<String, double> currentBalances,
     required GameRound round,
@@ -13,13 +13,13 @@ class BalanceCalculator {
 
     switch (round.gameType) {
       case GameType.sauspiel:
-        _calculateSauspielBalances(newBalances, round, players);
+        _calculateSauspielBalances(newBalances, round.value, round, players);
         break;
       case GameType.ramsch:
-        _calculateRamschBalances(newBalances, round, players);
+        _calculateRamschBalances(newBalances, round.value, round, players);
         break;
       default:
-        _calculateSoloBalances(newBalances, round, players);
+        _calculateSoloBalances(newBalances, round.value, round, players);
         break;
     }
 
@@ -29,6 +29,7 @@ class BalanceCalculator {
   /// Calculates balances for Sauspiel games
   static void _calculateSauspielBalances(
     Map<String, double> balances,
+    double valueInEuros,
     GameRound round,
     List<String> players,
   ) {
@@ -42,18 +43,18 @@ class BalanceCalculator {
     if (round.isWon) {
       // Team 1 wins
       for (final winner in team1) {
-        balances[winner] = (balances[winner] ?? 0) + round.value;
+        balances[winner] = (balances[winner] ?? 0) + valueInEuros;
       }
       for (final loser in team2) {
-        balances[loser] = (balances[loser] ?? 0) - round.value;
+        balances[loser] = (balances[loser] ?? 0) - valueInEuros;
       }
     } else {
       // Team 2 wins
       for (final loser in team1) {
-        balances[loser] = (balances[loser] ?? 0) - round.value;
+        balances[loser] = (balances[loser] ?? 0) - valueInEuros;
       }
       for (final winner in team2) {
-        balances[winner] = (balances[winner] ?? 0) + round.value;
+        balances[winner] = (balances[winner] ?? 0) + valueInEuros;
       }
     }
   }
@@ -61,27 +62,28 @@ class BalanceCalculator {
   /// Calculates balances for Solo games (including Wenz, Geier, etc.)
   static void _calculateSoloBalances(
     Map<String, double> balances,
+    double valueInEuros,
     GameRound round,
     List<String> players,
   ) {
     if (round.isWon) {
       // Solo player gets 3x the value (one from each opponent)
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + (round.value * 3);
+      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + (valueInEuros * 3);
       
       // Each opponent pays the base value
       for (String player in players) {
         if (player != round.mainPlayer) {
-          balances[player] = (balances[player] ?? 0) - round.value;
+          balances[player] = (balances[player] ?? 0) - valueInEuros;
         }
       }
     } else {
       // Solo player pays 3x the value (one to each opponent)
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (round.value * 3);
+      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 3);
       
       // Each opponent receives the base value
       for (String player in players) {
         if (player != round.mainPlayer) {
-          balances[player] = (balances[player] ?? 0) + round.value;
+          balances[player] = (balances[player] ?? 0) + valueInEuros;
         }
       }
     }
@@ -90,16 +92,17 @@ class BalanceCalculator {
   /// Calculates balances for Ramsch games
   static void _calculateRamschBalances(
     Map<String, double> balances,
+    double valueInEuros,
     GameRound round,
     List<String> players,
   ) {
     // In Ramsch, the main player is the loser
-    balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (round.value * 3);
+    balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 3);
     
     // Other players split the winnings
     for (String player in players) {
       if (player != round.mainPlayer) {
-        balances[player] = (balances[player] ?? 0) + round.value;
+        balances[player] = (balances[player] ?? 0) + valueInEuros;
       }
     }
   }
