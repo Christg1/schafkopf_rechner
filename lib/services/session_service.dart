@@ -6,6 +6,11 @@ import '../utils/balance_calculator.dart';
 class SessionService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  // Make sure we're properly initializing Firebase
+  SessionService() {
+    // Optional: Add any initialization if needed
+  }
+
   // Create new session
   Future<String> createSession({
     required List<String> players,
@@ -43,30 +48,65 @@ class SessionService {
 
   // Add round to session
   Future<void> addRound(String sessionId, GameRound round) async {
-    final batch = _db.batch();
-    
-    // Get current session data
-    final sessionDoc = await _db.collection('sessions').doc(sessionId).get();
-    final session = Session.fromFirestore(sessionDoc);
-    
-    // Calculate new balances
-    Map<String, double> newBalances = BalanceCalculator.calculateNewBalances(
-      currentBalances: session.playerBalances,
-      round: round,
-      players: session.players,
-    );
-    
-    // Update session
-    batch.update(_db.collection('sessions').doc(sessionId), {
-      'rounds': FieldValue.arrayUnion([round.toFirestore()]),
-      'playerBalances': newBalances,
-      'currentDealer': (session.currentDealer + 1) % 4,
-    });
+    try {
+      final sessionRef = _db.collection('sessions').doc(sessionId);
+      final sessionDoc = await sessionRef.get();
 
-    // Update player statistics
-    _updatePlayerStats(round, batch, session.players);
+      if (!sessionDoc.exists) {
+        throw Exception('Session not found');
+      }
 
-    await batch.commit();
+      final session = Session.fromFirestore(sessionDoc);
+      
+      // Calculate new balances
+      final newBalances = BalanceCalculator.calculateNewBalances(
+        currentBalances: session.playerBalances,
+        round: round,
+        players: session.players,
+      );
+
+      // Update session
+      await sessionRef.update({
+        'rounds': FieldValue.arrayUnion([round.toFirestore()]),
+        'playerBalances': newBalances,
+        'currentDealer': (session.currentDealer + 1) % session.players.length,
+      });
+
+      // Update player statistics
+      for (String playerName in session.players) {
+        final playerRef = _db.collection('players').doc(playerName);
+        final playerDoc = await playerRef.get();
+        final currentData = playerDoc.data() ?? {};
+        
+        // Get current game type stats
+        Map<String, int> gameTypeStats = Map<String, int>.from(currentData['gameTypeStats'] ?? {});
+        
+        // Update game type count for the main player
+        if (playerName == round.mainPlayer) {
+          final gameTypeName = round.gameType.name;
+          gameTypeStats[gameTypeName] = (gameTypeStats[gameTypeName] ?? 0) + 1;
+        }
+
+        // Calculate balance change for this player
+        final oldBalance = session.playerBalances[playerName] ?? 0.0;
+        final newBalance = newBalances[playerName] ?? 0.0;
+        final balanceChange = newBalance - oldBalance;
+
+        await playerRef.set({
+          'name': playerName,
+          'gamesParticipated': (currentData['gamesParticipated'] ?? 0) + 1,
+          'gamesPlayed': (currentData['gamesPlayed'] ?? 0) + (playerName == round.mainPlayer ? 1 : 0),
+          'gamesWon': (currentData['gamesWon'] ?? 0) + 
+              (playerName == round.mainPlayer && round.isWon ? 1 : 0),
+          'totalEarnings': (currentData['totalEarnings'] ?? 0.0) + balanceChange,
+          'gameTypeStats': gameTypeStats,
+        }, SetOptions(merge: true));
+      }
+
+    } catch (e) {
+      print('Error in addRound: $e');
+      rethrow;
+    }
   }
 
   // Get active session
@@ -86,31 +126,32 @@ class SessionService {
     });
   }
 
-  void _updatePlayerStats(GameRound round, WriteBatch batch, List<String> sessionPlayers) {
-    final playerRef = _db.collection('players');
-    
-    // Update main player statistics
-    batch.update(playerRef.doc(round.mainPlayer.toLowerCase()), {
-      'gamesPlayed': FieldValue.increment(1),
-      'gamesWon': FieldValue.increment(round.isWon ? 1 : 0),
-      'totalEarnings': FieldValue.increment(round.value * (round.isWon ? 1 : -1)),
-      'gameTypeStats.${round.gameType.name}': FieldValue.increment(1),
-      'gamesParticipated': FieldValue.increment(1),
-    });
+  Future<void> _updatePlayerStats(GameRound round, WriteBatch batch, List<String> players) async {
+    final playersRef = _db.collection('players');
 
-    // Update all other players' participation and earnings
-    for (String player in sessionPlayers) {
-      if (player != round.mainPlayer) {
-        double earnings = 0;
-        bool isPartner = round.partner == player;
-        bool isWinner = (isPartner && round.isWon) || (!isPartner && !round.isWon);
-        earnings = round.value * (isWinner ? 1 : -1);
-
-        batch.update(playerRef.doc(player.toLowerCase()), {
-          'gamesParticipated': FieldValue.increment(1),
-          'totalEarnings': FieldValue.increment(earnings),
-        });
+    for (String playerName in players) {
+      final playerDoc = await playersRef.doc(playerName).get();
+      final Map<String, dynamic> currentData = playerDoc.data() ?? {};
+      
+      // Get current values or default to 0
+      double currentEarnings = (currentData['totalEarnings'] ?? 0.0).toDouble();
+      
+      // Add the new balance from this session
+      double newBalance = currentEarnings;
+      
+      // Update total earnings by adding the new balance from this session
+      if (playerDoc.exists) {
+        newBalance += round.value;  // Add the new balance
       }
+
+      batch.set(playersRef.doc(playerName), {
+        'name': playerName,
+        'totalEarnings': newBalance,
+        'gamesParticipated': (currentData['gamesParticipated'] ?? 0) + 1,
+        'gamesPlayed': (currentData['gamesPlayed'] ?? 0) + (playerName == round.mainPlayer ? 1 : 0),
+        'gamesWon': (currentData['gamesWon'] ?? 0) + 
+            (playerName == round.mainPlayer && round.isWon ? 1 : 0),
+      }, SetOptions(merge: true));
     }
   }
 } 

@@ -7,7 +7,6 @@ import '../models/game_round.dart';
 import '../utils/game_calculator.dart';
 import '../services/session_service.dart';
 import '../models/session.dart';
-import '../utils/currency_formatter.dart';
 import '../providers/settings_provider.dart';
 
 
@@ -149,7 +148,7 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
     GameType? selectedGameType;
     String? selectedPlayer;
     String? selectedPartner;
-    bool isWon = false;
+    bool isWon = true;
     bool isSchneider = false;
     bool isSchwarz = false;
     final knockingPlayers = <String>{};
@@ -235,10 +234,12 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
 
                     // Game Result Options
                     SwitchListTile(
-                      title: const Text('Gewonnen'),
-                      value: isWon,
+                      title: const Text('Verloren'),
+                      value: !isWon,
                       onChanged: (bool value) {
-                        setState(() => isWon = value);
+                        setState(() {
+                          isWon = !value;
+                        });
                       },
                     ),
 
@@ -261,72 +262,53 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                     const Divider(),
 
                     // Klopfen Selection
-                    const Text('Klopfen:', style: TextStyle(fontSize: 16)),
-                    Wrap(
-                      spacing: 8.0,
-                      children: session.players.map((player) {
-                        return FilterChip(
-                          label: Text(player),
-                          selected: knockingPlayers.contains(player),
-                          onSelected: (bool selected) {
-                            setState(() {
-                              if (selected) {
-                                knockingPlayers.add(player);
-                              } else {
-                                knockingPlayers.remove(player);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
+                    Row(
+                      children: [
+                        const Text('Klopfen: '),
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          onPressed: knockingPlayers.isNotEmpty 
+                              ? () => setState(() => knockingPlayers.clear()) 
+                              : null,
+                        ),
+                        Text('${knockingPlayers.length}'),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          onPressed: () => setState(() => knockingPlayers.add('klopfen')),
+                        ),
+                      ],
                     ),
 
                     const SizedBox(height: 8),
 
                     // Kontra Selection
-                    const Text('Kontra:', style: TextStyle(fontSize: 16)),
-                    Wrap(
-                      spacing: 8.0,
-                      children: session.players.map((player) {
-                        return FilterChip(
-                          label: Text(player),
-                          selected: kontraPlayers.contains(player),
-                          onSelected: (bool selected) {
-                            setState(() {
-                              if (selected) {
-                                kontraPlayers.add(player);
-                                rePlayers.remove(player);  // Can't have both
-                              } else {
-                                kontraPlayers.remove(player);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
+                    SwitchListTile(
+                      title: const Text('Kontra'),
+                      value: kontraPlayers.isNotEmpty,
+                      onChanged: (bool value) {
+                        setState(() {
+                          if (value) {
+                            kontraPlayers.add('kontra');
+                          } else {
+                            kontraPlayers.clear();
+                          }
+                        });
+                      },
                     ),
 
-                    const SizedBox(height: 8),
-
                     // Re Selection
-                    const Text('Re:', style: TextStyle(fontSize: 16)),
-                    Wrap(
-                      spacing: 8.0,
-                      children: session.players.map((player) {
-                        return FilterChip(
-                          label: Text(player),
-                          selected: rePlayers.contains(player),
-                          onSelected: (bool selected) {
-                            setState(() {
-                              if (selected) {
-                                rePlayers.add(player);
-                                kontraPlayers.remove(player);  // Can't have both
-                              } else {
-                                rePlayers.remove(player);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
+                    SwitchListTile(
+                      title: const Text('Re'),
+                      value: rePlayers.isNotEmpty,
+                      onChanged: (bool value) {
+                        setState(() {
+                          if (value) {
+                            rePlayers.add('re');
+                          } else {
+                            rePlayers.clear();
+                          }
+                        });
+                      },
                     ),
 
                     const Divider(),
@@ -355,13 +337,13 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                   child: const Text('Abbrechen'),
                 ),
                 TextButton(
-                  onPressed: () {
+                  onPressed: () async {
                     if (selectedGameType != null && selectedPlayer != null) {
                       final round = GameRound(
                         gameType: selectedGameType!,
                         mainPlayer: selectedPlayer!,
                         partner: selectedPartner,
-                        suit: null,  // Removed suit
+                        suit: null,
                         isWon: isWon,
                         isSchneider: isSchneider,
                         isSchwarz: isSchwarz,
@@ -370,8 +352,29 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
                         rePlayers: rePlayers.toList(),
                         value: currentValue,
                       );
-                      _sessionService.addRound(widget.sessionId, round);
-                      Navigator.pop(context);
+                      
+                      try {
+                        // Show loading indicator
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const Center(child: CircularProgressIndicator()),
+                        );
+                        
+                        // Add the round
+                        await _sessionService.addRound(widget.sessionId, round);
+                        
+                        // Close loading indicator and dialog
+                        Navigator.of(context).pop(); // Close loading
+                        Navigator.of(context).pop(); // Close new round dialog
+                      } catch (e) {
+                        // Close loading indicator
+                        Navigator.of(context).pop();
+                        // Show error
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Fehler beim Speichern: $e')),
+                        );
+                      }
                     }
                   },
                   child: const Text('Speichern'),
@@ -398,27 +401,35 @@ class _GameplayScreenState extends ConsumerState<GameplayScreen> {
       }
     }
 
-    // Calculate who owes who
-    for (int i = 0; i < session.players.length; i++) {
-      String player = session.players[i];
-      double balance = session.playerBalances[player] ?? 0;
+    // Find players with negative and positive balances
+    final negativeBalances = session.playerBalances.entries
+        .where((e) => e.value < 0)
+        .toList()
+        ..sort((a, b) => a.value.compareTo(b.value)); // Most negative first
+
+    final positiveBalances = session.playerBalances.entries
+        .where((e) => e.value > 0)
+        .toList()
+        ..sort((a, b) => b.value.compareTo(a.value)); // Most positive first
+
+    // For each negative balance, distribute to positive balances
+    for (var negative in negativeBalances) {
+      var remainingDebt = -negative.value; // Make positive for calculations
       
-      if (balance < 0) {
-        // This player owes money
-        for (int j = i + 1; j < session.players.length; j++) {
-          String otherPlayer = session.players[j];
-          double otherBalance = session.playerBalances[otherPlayer] ?? 0;
-          
-          if (otherBalance > 0) {
-            double amount = min(-balance, otherBalance);
-            settlements[player]![otherPlayer] = amount;
-            balance += amount;
-            otherBalance -= amount;
-          }
+      for (var positive in positiveBalances) {
+        if (remainingDebt <= 0) break;
+        
+        var availableCredit = positive.value;
+        var transfer = min(remainingDebt, availableCredit);
+        
+        if (transfer > 0) {
+          settlements[negative.key]![positive.key] = transfer;
+          remainingDebt -= transfer;
         }
       }
     }
 
+    // Show the dialog
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(

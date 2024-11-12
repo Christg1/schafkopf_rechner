@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:schafkopf_rechner/utils/currency_formatter.dart';
-import '../models/game_types.dart';
-import '../models/session.dart';
+import 'package:schafkopf_rechner/models/game_types.dart';
+import 'package:schafkopf_rechner/models/session.dart';
 
 class StatisticsScreen extends StatelessWidget {
   const StatisticsScreen({super.key});
@@ -334,7 +333,8 @@ class _GeneralStatisticsTab extends StatelessWidget {
                       Text('Runden: ${session.rounds.length}'),
                       const SizedBox(height: 4),
                       ...session.playerBalances.entries.map((e) => 
-                        Text('${e.key}: ${(e.value / 100).toStringAsFixed(2)}€')),
+                        Text('${e.key}: ${e.value.toStringAsFixed(2)}€')
+                      ),
                     ],
                   ),
                   isThreeLine: true,

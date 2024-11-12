@@ -41,7 +41,7 @@ class GameCalculator {
       case GameType.farbspiel:
         return double.parse((finalValue * 2).toStringAsFixed(2));  // Solo games are worth double
       case GameType.ramsch:
-        return double.parse(finalValue.toStringAsFixed(2));
+        return double.parse((finalValue * 2).toStringAsFixed(2));
     }
   }
 } 

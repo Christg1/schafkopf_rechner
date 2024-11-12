@@ -25,23 +25,14 @@ class SettingsScreen extends ConsumerWidget {
             const _SettingsHeader('Darstellung'),
             SwitchListTile(
               title: const Text('Dark Mode'),
-              subtitle: const Text('Dunkles Erscheinungsbild aktivieren'),
               value: settings.isDarkMode,
-              onChanged: (_) => ref
-                  .read(settingsNotifierProvider.notifier)
-                  .toggleDarkMode(),
+              onChanged: (bool value) {
+                ref.read(settingsNotifierProvider.notifier).toggleDarkMode();
+              },
             ),
             const Divider(),
             
             const _SettingsHeader('Spieleinstellungen'),
-            SwitchListTile(
-              title: const Text('Cent statt Euro'),
-              subtitle: const Text('Beträge in Cent anzeigen'),
-              value: settings.showCentsInstead,
-              onChanged: (_) => ref
-                  .read(settingsNotifierProvider.notifier)
-                  .toggleShowCents(),
-            ),
             ListTile(
               title: const Text('Standard Grundwert'),
               subtitle: Text('${settings.defaultBaseValue} Cent'),
