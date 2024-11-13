@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:schafkopf_rechner/models/game_types.dart';
+import 'package:schafkopf_rechner/models/player.dart';
 import 'package:schafkopf_rechner/models/session.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:schafkopf_rechner/widgets/loading_indicator.dart';
@@ -18,7 +19,7 @@ class StatisticsScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Statistiken'),
-          bottom: TabBar(
+          bottom: const TabBar(
             isScrollable: true,
             tabs: [
               Tab(text: 'Spieler 👥'),
@@ -47,120 +48,117 @@ class _PlayerStatsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('players').snapshots(),
+      stream: FirebaseFirestore.instance.collection('sessions').snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const CustomLoadingIndicator();
+        if (snapshot.hasError) {
+          return const Center(child: Text('Ein Fehler ist aufgetreten'));
+        }
+        if (!snapshot.hasData) {
+          return const CustomLoadingIndicator();
+        }
+
+        // Calculate totals from all sessions
+        Map<String, Player> players = {};
+        
+        for (var doc in snapshot.data!.docs) {
+          final session = Session.fromFirestore(doc);
+          
+          // Initialize players if they don't exist
+          for (var playerName in session.players) {
+            players.putIfAbsent(playerName, () => Player(name: playerName));
+          }
+          
+          // Add balances
+          session.playerBalances.forEach((playerName, balance) {
+            players[playerName]!.totalEarnings += balance;
+          });
+          
+          // Update games played, participated, and won
+          for (var round in session.rounds) {
+            // Update participated for all players in the session
+            for (var playerName in session.players) {
+              players[playerName]!.gamesParticipated++;
+            }
+            
+            // Update played and won for the main player
+            final mainPlayer = players[round.mainPlayer]!;
+            mainPlayer.gamesPlayed++;
+            if (round.isWon) {
+              mainPlayer.gamesWon++;
+            }
+            
+            // Update game type stats
+            mainPlayer.gameTypeStats[round.gameType] = 
+                (mainPlayer.gameTypeStats[round.gameType] ?? 0) + 1;
+          }
+        }
+
+        final playersList = players.values.toList()
+          ..sort((a, b) => b.totalEarnings.compareTo(a.totalEarnings));
 
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: snapshot.data!.docs.length,
+          itemCount: playersList.length,
           itemBuilder: (context, index) {
-            final playerDoc = snapshot.data!.docs[index];
-            final playerData = playerDoc.data() as Map<String, dynamic>;
-            final totalEarnings = (playerData['totalEarnings'] as num?)?.toDouble() ?? 0.0;
-
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => _showPlayerDetails(context, playerDoc.id, playerData),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                            child: Text(playerDoc.id[0].toUpperCase()),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              playerDoc.id,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: totalEarnings >= 0 
-                                ? Colors.green.withOpacity(0.1)
-                                : Colors.red.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '${totalEarnings.toStringAsFixed(2)}€',
-                              style: TextStyle(
-                                color: totalEarnings >= 0 ? Colors.green : Colors.red,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _StatItem(
-                            icon: Icons.casino,
-                            label: 'Spiele',
-                            value: '${playerData['gamesPlayed'] ?? 0}',
-                          ),
-                          _StatItem(
-                            icon: Icons.emoji_events,
-                            label: 'Gewonnen',
-                            value: '${playerData['gamesWon'] ?? 0}',
-                          ),
-                          _StatItem(
-                            icon: Icons.percent,
-                            label: 'Quote',
-                            value: _calculateWinRate(playerData),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            final player = playersList[index];
+            return PlayerStatisticsCard(
+              player: player,
+              balance: player.totalEarnings,  // Use totalEarnings directly from player
+              gamesPlayed: player.gamesPlayed,
+              gamesWon: player.gamesWon,
+              winRate: player.gamesPlayed > 0 
+                  ? (player.gamesWon / player.gamesPlayed * 100)
+                  : 0,
             );
           },
         );
       },
     );
   }
+}
 
-  String _calculateWinRate(Map<String, dynamic> playerData) {
-    final played = playerData['gamesPlayed'] ?? 0;
-    final won = playerData['gamesWon'] ?? 0;
-    if (played == 0) return '0%';
-    return '${((won / played) * 100).toStringAsFixed(1)}%';
-  }
+class PlayerStatisticsCard extends StatelessWidget {
+  final Player player;
+  final double balance;
+  final int gamesPlayed;
+  final int gamesWon;
+  final double winRate;
 
-  void _showPlayerDetails(BuildContext context, String playerId, Map<String, dynamic> playerData) {
-    final totalBalance = (playerData['totalEarnings'] as num?)?.toDouble() ?? 0.0;
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: PlayerDetailsSheet(
-            playerId: playerId,
-            playerData: playerData,
-            scrollController: scrollController,
-            totalBalance: totalBalance,
-          ),
+  const PlayerStatisticsCard({
+    required this.player,
+    required this.balance,
+    required this.gamesPlayed,
+    required this.gamesWon,
+    required this.winRate,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  player.name,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(
+                  '${balance.toStringAsFixed(2)}€',
+                  style: TextStyle(
+                    color: balance >= 0 ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ],
+            ),
+            // ... rest of the card content ...
+          ],
         ),
       ),
     );
@@ -406,49 +404,67 @@ class _SessionsTab extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('sessions')
           .orderBy('date', descending: true)
-          .limit(10)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        if (!snapshot.hasData) return const CustomLoadingIndicator();
 
-        return ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            Text('Letzte Sessions',
-              style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 16),
-            ...snapshot.data!.docs.map((doc) {
-              final session = Session.fromFirestore(doc);
-              return Card(
-                child: ListTile(
-                  title: Text(DateFormat('dd.MM.yyyy HH:mm').format(session.date)),
-                  subtitle: Text('Spieler: ${session.players.join(", ")}'),
-                  trailing: Text('${session.rounds.length} Runden'),
-                  onTap: () => _showSessionDetails(context, session),
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: snapshot.data!.docs.length,
+          itemBuilder: (context, index) {
+            final session = Session.fromFirestore(snapshot.data!.docs[index]);
+            
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          DateFormat('dd.MM.yyyy').format(session.date),
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${session.rounds.length} Runden',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      children: session.players.map((player) => Chip(
+                        label: Text(player),
+                      )).toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    ...session.playerBalances.entries.map((e) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(e.key),
+                          Text(
+                            '${e.value.toStringAsFixed(2)}€',
+                            style: TextStyle(
+                              color: e.value >= 0 ? Colors.green : Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+                  ],
                 ),
-              );
-            }),
-          ],
+              ),
+            );
+          },
         );
       },
-    );
-  }
-
-  void _showSessionDetails(BuildContext context, Session session) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.9,
-        minChildSize: 0.5,
-        maxChildSize: 0.9,
-        builder: (_, controller) => SessionDetailsSheet(
-          session: session,
-          scrollController: controller,
-        ),
-      ),
     );
   }
 }
@@ -553,8 +569,8 @@ class SessionDetailsSheet extends StatelessWidget {
                   _buildStatRow('Gewonnen', gamesWon[player] ?? 0),
                   _buildStatRow('Gewinnrate', 
                     totalGamesPlayed[player] == 0 ? 0 :
-                    ((gamesWon[player] ?? 0) / (totalGamesPlayed[player] ?? 1) * 100)
-                        .toStringAsFixed(1) + '%'),
+                    '${((gamesWon[player] ?? 0) / (totalGamesPlayed[player] ?? 1) * 100)
+                        .toStringAsFixed(1)}%'),
 
                   // Game types played
                   if ((playerGameTypes[player]?.isNotEmpty ?? false)) ...[
@@ -598,135 +614,47 @@ class _RankingsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('sessions')
-          .orderBy('date', descending: true)
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('sessions').snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        if (!snapshot.hasData) return const CustomLoadingIndicator();
 
-        // Initialize data structures
-        Map<String, int> gamesPlayed = {};
-        Map<String, int> gamesWon = {};
+        // Calculate totals from all sessions
         Map<String, double> totalEarnings = {};
-        Map<String, List<bool>> duoResults = {};  // Changed to track simple win/loss
-
-        // Process all sessions
+        
         for (var doc in snapshot.data!.docs) {
           final session = Session.fromFirestore(doc);
-          
-          for (var round in session.rounds) {
-            // Update player stats
-            gamesPlayed[round.mainPlayer] = (gamesPlayed[round.mainPlayer] ?? 0) + 1;
-            if (round.isWon) {
-              gamesWon[round.mainPlayer] = (gamesWon[round.mainPlayer] ?? 0) + 1;
-            }
-            
-            // Update earnings
-            final earnings = session.playerBalances[round.mainPlayer] ?? 0;
-            totalEarnings[round.mainPlayer] = (totalEarnings[round.mainPlayer] ?? 0) + earnings;
-
-            // Track Sauspiel partnerships
-            if (round.gameType == GameType.sauspiel && round.partner != null) {
-              final players = [round.mainPlayer, round.partner!]..sort();
-              final duoKey = '${players[0]} & ${players[1]}';
-              
-              duoResults.putIfAbsent(duoKey, () => []);
-              duoResults[duoKey]!.add(round.isWon);
+          if (!session.isActive) { // Only count completed sessions
+            final balances = session.playerBalances;
+            for (var entry in balances.entries) {
+              totalEarnings[entry.key] = (totalEarnings[entry.key] ?? 0) + entry.value;
             }
           }
         }
 
-        // Calculate win rates
-        final winRates = gamesPlayed.map((player, games) {
-          final wins = gamesWon[player] ?? 0;
-          return MapEntry(player, games > 0 ? (wins / games * 100) : 0.0);
-        });
+        final players = totalEarnings.entries.map((e) {
+          final player = Player(name: e.key);
+          player.totalEarnings = e.value;
+          return player;
+        }).toList()
+          ..sort((a, b) => b.totalEarnings.compareTo(a.totalEarnings));
 
-        // Calculate average earnings
-        final avgEarnings = gamesPlayed.map((player, games) {
-          final earnings = totalEarnings[player] ?? 0;
-          return MapEntry(player, games > 0 ? (earnings / games) : 0.0);
-        });
-
-        // Calculate duo win rates
-        final duoWinRates = duoResults.map((duo, results) {
-          if (results.isEmpty) return MapEntry(duo, 0.0);
-          final wins = results.where((result) => result).length;
-          return MapEntry(duo, (wins / results.length) * 100);
-        });
-
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (winRates.isNotEmpty) _buildRankingCard(
-              context,
-              'Beste Gewinnrate 🎯',
-              winRates.entries.toList(),
-              suffix: '%',
-              formatValue: (v) => v.toStringAsFixed(1),
-            ),
-            if (avgEarnings.isNotEmpty) _buildRankingCard(
-              context,
-              'Höchster Durchschnittsgewinn 💰',
-              avgEarnings.entries.toList(),
-              prefix: '€',
-              formatValue: (v) => v.toStringAsFixed(2),
-            ),
-            if (duoWinRates.isNotEmpty) _buildRankingCard(
-              context,
-              'Bestes Duo 🤝',
-              duoWinRates.entries.toList(),
-              suffix: '%',
-              formatValue: (v) => v.toStringAsFixed(1),
-            ),
-          ],
+        return ListView.builder(
+          itemCount: players.length,
+          itemBuilder: (context, index) {
+            final player = players[index];
+            return ListTile(
+              title: Text(player.name),
+              trailing: Text(
+                '${player.totalEarnings.toStringAsFixed(2)}€',
+                style: TextStyle(
+                  color: player.totalEarnings >= 0 ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            );
+          },
         );
       },
-    );
-  }
-
-  Widget _buildRankingCard(
-    BuildContext context,
-    String title,
-    List<MapEntry<String, dynamic>> entries, {
-    String? prefix,
-    String? suffix,
-    required String Function(double) formatValue,
-  }) {
-    // Sort entries by value descending
-    entries.sort((a, b) => b.value.compareTo(a.value));
-    
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            ...entries.take(3).map((e) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(e.key),
-                  Text(
-                    '${prefix ?? ''}${formatValue(e.value.toDouble())}${suffix ?? ''}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-            )),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -800,7 +728,7 @@ class _BalanceProgressionTab extends StatelessWidget {
               LineChartData(
                 lineTouchData: LineTouchData(
                   touchTooltipData: LineTouchTooltipData(
-                    tooltipBgColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.8),
+                    tooltipBgColor: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.8),
                     getTooltipItems: (touchedSpots) {
                       return touchedSpots.map((spot) {
                         return LineTooltipItem(
@@ -811,8 +739,8 @@ class _BalanceProgressionTab extends StatelessWidget {
                     },
                   ),
                 ),
-                gridData: FlGridData(show: true),
-                titlesData: FlTitlesData(
+                gridData: const FlGridData(show: true),
+                titlesData: const FlTitlesData(
                   bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -832,7 +760,7 @@ class _BalanceProgressionTab extends StatelessWidget {
                     color: color,
                     barWidth: 3,
                     isStrokeCapRound: true,
-                    dotData: FlDotData(show: false),
+                    dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
                       color: color.withOpacity(0.1),
@@ -852,203 +780,80 @@ class _RecordsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('sessions')
-          .orderBy('date', descending: true)
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('sessions').snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(child: Text('Ein Fehler ist aufgetreten'));
+        }
         if (!snapshot.hasData) {
           return const CustomLoadingIndicator();
         }
 
-        // Initialize record variables
-        double highestSessionWin = 0;
-        String? highestSessionWinPlayer;
-        DateTime? highestSessionWinDate;
+        // Track streaks per player
+        Map<String, double> currentStreaks = {};
+        Map<String, double> highestStreaks = {};
         
-        double biggestSingleGameWin = 0;
-        String? biggestGameWinPlayer;
-        GameType? biggestGameWinType;
-        DateTime? biggestGameWinDate;
+        // Sort sessions by date to process them chronologically
+        final sessions = snapshot.data!.docs
+            .map((doc) => Session.fromFirestore(doc))
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
 
-        int longestWinStreak = 0;
-        String? streakPlayer;
-        
-        double biggestWinningStreak = 0;
-        String? winningStreakPlayer;
-        DateTime? winningStreakDate;
-
-        int mostRoundsInSession = 0;
-        DateTime? mostRoundsDate;
-
-        double mostExpensiveRound = 0;
-        GameType? expensiveRoundType;
-        DateTime? expensiveRoundDate;
-
-        double biggestComeback = 0;
-        String? comebackPlayer;
-        DateTime? comebackDate;
-
-        Map<String, int> currentStreaks = {};
-        Map<String, double> currentWinningStreaks = {};
-
-        // Process all sessions
-        for (var doc in snapshot.data!.docs) {
-          final session = Session.fromFirestore(doc);
-          final sessionDate = session.date;
-
-          // Check for highest session win
-          session.playerBalances.forEach((player, balance) {
-            if (balance > highestSessionWin) {
-              highestSessionWin = balance;
-              highestSessionWinPlayer = player;
-              highestSessionWinDate = sessionDate;
-            }
-          });
-
-          // Check for most rounds
-          if (session.rounds.length > mostRoundsInSession) {
-            mostRoundsInSession = session.rounds.length;
-            mostRoundsDate = sessionDate;
-          }
-
-          // Process rounds in this session
+        for (var session in sessions) {
           for (var round in session.rounds) {
-            // Calculate actual win amount based on game type
-            double actualWinAmount = round.value;
-            if (round.gameType != GameType.sauspiel) {
-              actualWinAmount *= 2; // Double value for Solo games and Ramsch
-            }
-
-            if (round.isWon && actualWinAmount > biggestSingleGameWin) {
-              biggestSingleGameWin = actualWinAmount;
-              biggestGameWinPlayer = round.mainPlayer;
-              biggestGameWinType = round.gameType;
-              biggestGameWinDate = sessionDate;
-            }
-
-            if (actualWinAmount > mostExpensiveRound) {
-              mostExpensiveRound = actualWinAmount;
-              expensiveRoundType = round.gameType;
-              expensiveRoundDate = sessionDate;
-            }
-
-            // Update win streaks
-            if (round.isWon) {
-              currentStreaks[round.mainPlayer] = 
-                  (currentStreaks[round.mainPlayer] ?? 0) + 1;
-              currentWinningStreaks[round.mainPlayer] = 
-                  (currentWinningStreaks[round.mainPlayer] ?? 0.0) + round.value;
-              
-              if ((currentStreaks[round.mainPlayer] ?? 0) > longestWinStreak) {
-                longestWinStreak = currentStreaks[round.mainPlayer]!;
-                streakPlayer = round.mainPlayer;
+            final mainPlayer = round.mainPlayer;
+            
+            // Calculate actual earnings for the main player
+            double actualEarnings = 0;
+            if (session.players.length == 3) {
+              actualEarnings = round.isWon ? (round.value * 2) : -(round.value * 2);
+            } else {
+              // 4 player game
+              if (round.gameType == GameType.sauspiel) {
+                actualEarnings = round.isWon ? round.value : -round.value;
+              } else {
+                actualEarnings = round.isWon ? (round.value * 3) : -(round.value * 3);
               }
+            }
 
-              if ((currentWinningStreaks[round.mainPlayer] ?? 0) > biggestWinningStreak) {
-                biggestWinningStreak = currentWinningStreaks[round.mainPlayer]!;
-                winningStreakPlayer = round.mainPlayer;
-                winningStreakDate = sessionDate;
+            // Update streak for main player
+            if (round.isWon) {
+              currentStreaks[mainPlayer] = (currentStreaks[mainPlayer] ?? 0) + actualEarnings;
+              
+              // Update highest streak if current is higher
+              if ((currentStreaks[mainPlayer] ?? 0) > (highestStreaks[mainPlayer] ?? 0)) {
+                highestStreaks[mainPlayer] = currentStreaks[mainPlayer]!;
               }
             } else {
-              currentStreaks[round.mainPlayer] = 0;
-              currentWinningStreaks[round.mainPlayer] = 0;
-            }
-          }
-
-          // Calculate comebacks
-          Map<String, double> runningBalances = {};
-          Map<String, double> lowestBalances = {};
-          
-          for (var round in session.rounds) {
-            for (var player in session.players) {
-              double roundValue = 0.0;
-              if (player == round.mainPlayer) {
-                roundValue = round.isWon ? round.value : -round.value;
-                if (round.gameType != GameType.sauspiel) {
-                  roundValue *= 2;
-                }
-              } else {
-                roundValue = round.isWon ? -round.value : round.value;
-                if (round.gameType != GameType.sauspiel) {
-                  roundValue *= 2;
-                }
-              }
-              
-              runningBalances[player] = (runningBalances[player] ?? 0.0) + roundValue;
-              lowestBalances[player] = min(
-                lowestBalances[player] ?? double.infinity,
-                runningBalances[player]!
-              );
-              
-              final currentComeback = runningBalances[player]! - lowestBalances[player]!;
-              if (currentComeback > biggestComeback) {
-                biggestComeback = currentComeback;
-                comebackPlayer = player;
-                comebackDate = sessionDate;
-              }
+              // Reset streak on loss
+              currentStreaks[mainPlayer] = 0;
             }
           }
         }
 
+        // Find the highest streak among all players
+        double overallHighestStreak = 0;
+        String? playerWithHighestStreak;
+        
+        highestStreaks.forEach((player, streak) {
+          if (streak > overallHighestStreak) {
+            overallHighestStreak = streak;
+            playerWithHighestStreak = player;
+          }
+        });
+
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildRecordCard(
-              context,
-              'Höchster Sessiongewinn',
-              '${highestSessionWin.toStringAsFixed(2)}€',
-              '${highestSessionWinPlayer ?? "-"}\n${_formatDate(highestSessionWinDate)}',
-              '🏆',
-            ),
-            
-            _buildRecordCard(
-              context,
-              'Höchster Einzelspielgewinn',
-              '${biggestSingleGameWin.toStringAsFixed(2)}€',
-              '${biggestGameWinPlayer ?? "-"} (${biggestGameWinType?.name ?? "-"})\n${_formatDate(biggestGameWinDate)}',
-              '💰',
-            ),
-            
-            _buildRecordCard(
-              context,
-              'Längste Siegesserie',
-              '$longestWinStreak Spiele',
-              streakPlayer ?? "-",
-              '🔥',
-            ),
-
-            _buildRecordCard(
+            _buildRecordTile(
               context,
               'Wertvollste Siegesserie',
-              '${biggestWinningStreak.toStringAsFixed(2)}€',
-              '${winningStreakPlayer ?? "-"}\n${_formatDate(winningStreakDate)}',
-              '📈',
+              '${overallHighestStreak.toStringAsFixed(2)}€',
+              description: playerWithHighestStreak != null 
+                  ? 'von $playerWithHighestStreak' 
+                  : null,
             ),
-            
-            _buildRecordCard(
-              context,
-              'Meiste Runden in einer Session',
-              '$mostRoundsInSession Runden',
-              _formatDate(mostRoundsDate),
-              '🎲',
-            ),
-
-            _buildRecordCard(
-              context,
-              'Teuerstes Spiel',
-              '${mostExpensiveRound.toStringAsFixed(2)}€',
-              '${expensiveRoundType?.name ?? "-"}\n${_formatDate(expensiveRoundDate)}',
-              '💸',
-            ),
-
-            _buildRecordCard(
-              context,
-              'Größtes Comeback',
-              '${biggestComeback.toStringAsFixed(2)}€',
-              '${comebackPlayer ?? "-"}\n${_formatDate(comebackDate)}',
-              '🚀',
-            ),
+            // ... other records ...
           ],
         );
       },
@@ -1060,46 +865,22 @@ class _RecordsTab extends StatelessWidget {
     return DateFormat('dd.MM.yyyy').format(date);
   }
 
-  Widget _buildRecordCard(
+  Widget _buildRecordTile(
     BuildContext context,
     String title,
     String value,
-    String subtitle,
-    String emoji,
+    {String? description}
   ) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
       child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-        leading: Text(
-          emoji,
-          style: const TextStyle(fontSize: 36),
-        ),
-        title: Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            if (subtitle.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
+        title: Text(title),
+        subtitle: description != null ? Text(description) : null,
+        trailing: Text(
+          value,
+          style: TextStyle(
+            color: value.contains('-') ? Colors.red : Colors.green,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );

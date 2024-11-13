@@ -1,10 +1,10 @@
 enum GameType {
   sauspiel,
-  farbspiel,
-  geier,
-  farbgeier,
   wenz,
   farbwenz,
+  geier,
+  farbgeier,
+  farbspiel,
   ramsch
 }
 
@@ -35,5 +35,9 @@ extension GameTypeEmoji on GameType {
       default:
         return '🎮';
     }
+  }
+
+  bool get allowedInThreePlayerGame {
+    return this != GameType.sauspiel;  // Sauspiel requires 4 players
   }
 } 

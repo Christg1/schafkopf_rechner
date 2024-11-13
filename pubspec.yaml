@@ -42,7 +42,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   flutter_riverpod: ^2.5.1
-  riverpod_annotation: ^2.3.3
+  riverpod_annotation: ^2.3.5
 
   fl_chart: ^0.66.0
 
@@ -57,7 +57,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^4.0.0
 
-  riverpod_generator: ^2.3.9
+  riverpod_generator: ^2.4.0
   build_runner: ^2.4.8
 
 # For information on the generic Dart part of this file, see the

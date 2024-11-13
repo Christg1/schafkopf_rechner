@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/session_service.dart';
-import 'gameplay_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -176,7 +175,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(index < 4 ? '✅' : '⏳'), // Ready status
+                              Text(index < 3 ? '✅' : (index < 4 ? '✅' : '⏳')),
                               IconButton(
                                 icon: const Icon(Icons.remove_circle_outline),
                                 onPressed: () => _removePlayer(index),
@@ -193,7 +192,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
         ],
       ),
-      floatingActionButton: players.length >= 4
+      floatingActionButton: players.length >= 3
           ? FloatingActionButton.extended(
               onPressed: _startSession,
               icon: const Icon(Icons.play_arrow),
@@ -221,7 +220,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   Future<void> _startSession() async {
-    if (players.length == 4) {
+    if (players.length >= 3 && players.length <= 4) {
       try {
         final baseValue = double.parse(_baseValueController.text.replaceAll(',', '.'));
         if (baseValue <= 0) throw Exception('Grundwert muss größer als 0 sein');

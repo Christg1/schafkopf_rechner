@@ -4,15 +4,21 @@ import 'package:schafkopf_rechner/models/game_types.dart';
 class NewGameDialog extends StatelessWidget {
   final GameType selectedGameType;
   final Function(GameType) onGameTypeChanged;
+  final int playerCount;
 
   const NewGameDialog({
     super.key,
     required this.selectedGameType,
     required this.onGameTypeChanged,
+    required this.playerCount,
   });
 
   @override
   Widget build(BuildContext context) {
+    final availableGameTypes = playerCount == 3 
+        ? GameType.values.where((type) => type.allowedInThreePlayerGame)
+        : GameType.values;
+
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
@@ -23,7 +29,7 @@ class NewGameDialog extends StatelessWidget {
           gradient: LinearGradient(
             colors: [
               Theme.of(context).colorScheme.surface,
-              Theme.of(context).colorScheme.surfaceVariant,
+              Theme.of(context).colorScheme.surfaceContainerHighest,
             ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -42,7 +48,7 @@ class NewGameDialog extends StatelessWidget {
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               child: SegmentedButton<GameType>(
-                segments: GameType.values.map((type) => ButtonSegment(
+                segments: availableGameTypes.map((type) => ButtonSegment(
                   value: type,
                   label: Text(type.name),
                   icon: Icon(_getGameTypeIcon(type)),
@@ -51,16 +57,6 @@ class NewGameDialog extends StatelessWidget {
                 onSelectionChanged: (Set<GameType> selection) {
                   onGameTypeChanged(selection.first);
                 },
-                style: ButtonStyle(
-                  backgroundColor: MaterialStateProperty.resolveWith<Color>(
-                    (Set<MaterialState> states) {
-                      if (states.contains(MaterialState.selected)) {
-                        return Theme.of(context).colorScheme.primaryContainer;
-                      }
-                      return Theme.of(context).colorScheme.surfaceVariant;
-                    },
-                  ),
-                ),
               ),
             ),
             // ... rest of the dialog content

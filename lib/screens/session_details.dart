@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 class SessionDetailsScreen extends StatelessWidget {
+  const SessionDetailsScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -9,7 +11,7 @@ class SessionDetailsScreen extends StatelessWidget {
           SliverAppBar.large(
             expandedHeight: 200,
             flexibleSpace: FlexibleSpaceBar(
-              title: Text('Session Details'),
+              title: const Text('Session Details'),
               background: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -22,7 +24,7 @@ class SessionDetailsScreen extends StatelessWidget {
               ),
             ),
           ),
-          SliverToBoxAdapter(
+          const SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Column(

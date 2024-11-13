@@ -36,7 +36,7 @@ class PlayerSelectionChip extends StatelessWidget {
           avatar: CircleAvatar(
             backgroundColor: isSelected 
               ? Theme.of(context).colorScheme.primaryContainer
-              : Theme.of(context).colorScheme.surfaceVariant,
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
             child: Text(
               playerName[0].toUpperCase(),
               style: TextStyle(

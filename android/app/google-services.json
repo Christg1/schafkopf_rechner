@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1597115911",
+    "project_id": "schafkopf-70bc6",
+    "storage_bucket": "schafkopf-70bc6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1597115911:android:44440925d9d7e0b99564a2",
+        "android_client_info": {
+          "package_name": "com.example.schafkopf_rechner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCcvltN2v7bWna3Rfn09lOclEWf2tLVYi0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -9,15 +9,16 @@ import '../utils/game_calculator.dart';
 import '../services/session_service.dart';
 import '../models/session.dart';
 import '../providers/settings_provider.dart';
+import '../utils/balance_calculator.dart';
 
 const _playerEmojis = {
-  0: '😎',
+  0: '🐸',
   1: '🤠',
   2: '🦊',
   3: '🐻',
   4: '🦁',
   5: '🐯',
-  6: '🐸',
+  6: '😎',
   7: '🦉',
   8: '🦄',
   9: '🐼',
@@ -44,9 +45,16 @@ class GameplayScreen extends StatelessWidget {
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            // Get the base multiplier based on game type and player count
+            double typeMultiplier = 1.0;
+            if (selectedGameType != null && selectedGameType != GameType.sauspiel) {
+              // Only apply 2x multiplier for solo games in 4-player games
+              typeMultiplier = session.players.length == 4 ? 2.0 : 1.0;
+            }
+            
             double currentValue = GameCalculator.calculateGameValue(
               gameType: selectedGameType ?? GameType.sauspiel,
-              baseValue: session.baseValue,
+              baseValue: session.baseValue * typeMultiplier,
               knockingPlayers: knockingPlayers,
               kontraPlayers: kontraPlayers.toList(),
               rePlayers: rePlayers.toList(),
@@ -61,21 +69,12 @@ class GameplayScreen extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Game Type Selection
-                    DropdownButtonFormField<GameType>(
-                      decoration: const InputDecoration(labelText: 'Spielart'),
-                      value: selectedGameType,
-                      items: GameType.values.map((type) {
-                        return DropdownMenuItem(
-                          value: type,
-                          child: Text(type.name),
-                        );
-                      }).toList(),
-                      onChanged: (GameType? value) {
-                        setState(() {
-                          selectedGameType = value;
-                          selectedPartner = null;
-                        });
-                      },
+                    _buildGameTypeSelection(
+                      context, 
+                      session, 
+                      setState,
+                      selectedGameType,
+                      (value) => selectedGameType = value,
                     ),
                     const SizedBox(height: 16),
 
@@ -245,14 +244,9 @@ class GameplayScreen extends StatelessWidget {
                         gameType: selectedGameType!,
                         mainPlayer: selectedPlayer!,
                         partner: selectedPartner,
-                        suit: null,
                         isWon: isWon,
-                        isSchneider: isSchneider,
-                        isSchwarz: isSchwarz,
-                        knockingPlayers: knockingPlayers,
-                        kontraPlayers: kontraPlayers.toList(),
-                        rePlayers: rePlayers.toList(),
                         value: currentValue,
+                        timestamp: DateTime.now(),
                       );
                       
                       try {
@@ -264,7 +258,7 @@ class GameplayScreen extends StatelessWidget {
                         );
                         
                         // Add the round
-                        await SessionService().addRound(session.id, round);
+                        await _saveRound(context, session, round);
                         
                         // Close loading indicator and dialog
                         Navigator.of(context).pop(); // Close loading
@@ -292,9 +286,6 @@ class GameplayScreen extends StatelessWidget {
   Future<void> _endSession(BuildContext context, String sessionId) async {
     try {
       await SessionService().endSession(sessionId);
-      if (!context.mounted) return;
-      
-      Navigator.of(context).pushReplacementNamed('/statistics');
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -303,81 +294,95 @@ class GameplayScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _showEndSessionDialog(BuildContext context, Session session) async {
-    // Calculate who owes whom
-    List<String> debtMessages = [];
-    
-    // Find player with highest balance (they will be owed money)
-    String? highestBalancePlayer;
-    double highestBalance = double.negativeInfinity;
-    
-    for (var player in session.players) {
-      final balance = session.playerBalances[player] ?? 0;
-      if (balance > highestBalance) {
-        highestBalance = balance;
-        highestBalancePlayer = player;
-      }
-    }
-
-    // Calculate what others owe to the winner
-    for (var player in session.players) {
-      if (player == highestBalancePlayer) continue;
-      
-      final playerBalance = session.playerBalances[player] ?? 0;
-      final debt = (highestBalance - playerBalance) / 2;
-      
-      if (debt >= 0.01) { // Only show if debt is at least 1 cent
-        debtMessages.add('${player} schuldet ${highestBalancePlayer} ${debt.toStringAsFixed(2)}€');
-      }
-    }
-
-    return showDialog(
+  void _showEndSessionDialog(BuildContext context, Session session) {
+    showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Row(
-          children: [
-            Text('🏁 '),
-            Text('Session beenden?'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Möchtest du die aktuelle Session beenden?'),
-            const SizedBox(height: 16),
-            Text(
-              '${session.rounds.length} Spiele gespielt 🎮\n'
-              '${session.players.length} Spieler 👥',
-              textAlign: TextAlign.center,
-            ),
-            if (debtMessages.isNotEmpty) ...[
+      builder: (BuildContext context) {
+        final settlements = BalanceCalculator.calculateFinalSettlement(session.playerBalances);
+
+        return AlertDialog(
+          title: const Text('Session beenden'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Finale Abrechnung:'),
               const SizedBox(height: 16),
-              const Text(
-                'Schulden:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              ...debtMessages.map((msg) => Text('• $msg')),
+              ...settlements.map((settlement) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  settlement.toString(),
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+              )),
             ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await SessionService().endSession(session.id);
+                if (!context.mounted) return;
+                Navigator.of(context).pushReplacementNamed('/');
+              },
+              child: const Text('Session beenden'),
+            ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await _endSession(context, session.id);
-              if (!context.mounted) return;
-              Navigator.of(context).pushReplacementNamed('/'); // Navigate to home instead of statistics
-            },
-            child: const Text('Beenden ✅'),
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  Widget _buildGameTypeSelection(
+    BuildContext context, 
+    Session session, 
+    StateSetter setState,
+    GameType? selectedGameType,
+    void Function(GameType?) onGameTypeChanged,
+  ) {
+    final availableGameTypes = session.players.length == 3 
+        ? GameType.values.where((type) => type != GameType.sauspiel).toList()
+        : GameType.values;
+
+    return DropdownButtonFormField<GameType>(
+      decoration: const InputDecoration(labelText: 'Spielart'),
+      value: selectedGameType,
+      items: availableGameTypes.map((type) {
+        return DropdownMenuItem(
+          value: type,
+          child: Text('${type.name} ${type.emoji}'),
+        );
+      }).toList(),
+      onChanged: (GameType? value) {
+        setState(() => onGameTypeChanged(value));
+      },
+    );
+  }
+
+  Future<void> _saveRound(BuildContext context, Session session, GameRound round) async {
+    try {
+      // For Ramsch games, make sure we're using the base value directly
+      if (round.gameType == GameType.ramsch) {
+        final baseValue = session.baseValue;
+        final updatedRound = GameRound(
+          gameType: round.gameType,
+          mainPlayer: round.mainPlayer,
+          partner: round.partner,
+          isWon: round.isWon,
+          value: baseValue,  // Use base value directly
+          timestamp: DateTime.now(),
+        );
+        await SessionService().addRound(session.id, updatedRound);
+      } else {
+        await SessionService().addRound(session.id, round);
+      }
+      // ... rest of the method
+    } catch (e) {
+      // ... error handling
+    }
   }
 
   @override
@@ -422,7 +427,7 @@ class GameplayScreen extends StatelessWidget {
                         final player = entry.value;
                         final balance = session.playerBalances[player] ?? 0;
                         final emoji = _playerEmojis[index % _playerEmojis.length];
-                        final isDealer = index == (session.rounds.length % 4);  // Dealer rotates every round
+                        final isDealer = index == (session.rounds.length % session.players.length);  // Works for both 3 and 4 players
                         
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -457,7 +462,7 @@ class GameplayScreen extends StatelessWidget {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -487,31 +492,10 @@ class GameplayScreen extends StatelessWidget {
                       ),
                       const Divider(height: 1),
                       Expanded(
-                        child: ListView.separated(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: ListView.builder(
                           itemCount: session.rounds.length,
-                          separatorBuilder: (context, index) => const Divider(height: 1),
                           itemBuilder: (context, index) {
-                            final round = session.rounds[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-                                child: Text('${index + 1}'),
-                              ),
-                              title: Text(
-                                '${round.gameType.name} - ${round.mainPlayer}'
-                                '${round.partner != null ? ' mit ${round.partner}' : ''}',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              trailing: Text(
-                                '${round.value.toStringAsFixed(2)}€',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: round.isWon ? Colors.green : Colors.red,
-                                ),
-                              ),
-                            );
+                            return _buildRoundTile(session.rounds[index], session, index);
                           },
                         ),
                       ),
@@ -528,6 +512,22 @@ class GameplayScreen extends StatelessWidget {
           floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
         );
       },
+    );
+  }
+
+  Widget _buildRoundTile(GameRound round, Session session, int index) {
+    String displayValue = '${round.value.toStringAsFixed(2)}€';
+
+    return ListTile(
+      leading: CircleAvatar(child: Text('${index + 1}')),
+      title: Text('${round.gameType.name} - ${round.mainPlayer}'),
+      trailing: Text(
+        displayValue,
+        style: TextStyle(
+          color: round.isWon ? Colors.green : Colors.red,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

@@ -9,39 +9,63 @@ class GameCalculator {
     required List<String> knockingPlayers,
     required List<String> kontraPlayers,
     required List<String> rePlayers,
-    required bool isSchneider,
-    required bool isSchwarz,
+    bool isSchneider = false,
+    bool isSchwarz = false,
   }) {
-    // Start with base value
-    double value = double.parse(baseValue.toStringAsFixed(2));
-    double multiplier = 1.0;
-
-    // Add multiplier for knocking players (x2 for each)
-    multiplier *= pow(2, knockingPlayers.length).toDouble();
-
-    // Add multiplier for kontra/re (x2 each)
-    if (kontraPlayers.isNotEmpty) multiplier *= 2;
-    if (rePlayers.isNotEmpty) multiplier *= 2;
-
-    // Calculate base game value with multipliers
-    double finalValue = value * multiplier;
-
-    // Add baseValue for Schneider and Schwarz (not multiplied)
-    if (isSchneider) finalValue += baseValue;
-    if (isSchwarz) finalValue += baseValue;
-
-    // Apply game type multiplier
-    switch (gameType) {
-      case GameType.sauspiel:
-        return double.parse(finalValue.toStringAsFixed(2));
-      case GameType.wenz:
-      case GameType.farbwenz:
-      case GameType.geier:
-      case GameType.farbgeier:
-      case GameType.farbspiel:
-        return double.parse((finalValue * 2).toStringAsFixed(2));  // Solo games are worth double
-      case GameType.ramsch:
-        return double.parse((finalValue * 2).toStringAsFixed(2));
+    double value = baseValue;
+    
+    // Special handling for Ramsch
+    if (gameType == GameType.ramsch) {
+      // No need to modify the base value for Ramsch
+      // The value distribution will be handled in BalanceCalculator
+      return baseValue;
     }
+
+    // For non-Ramsch games, apply multipliers
+    value *= (1 + knockingPlayers.length * 0.5);
+    
+    if (kontraPlayers.isNotEmpty) value *= 2;
+    if (isSchneider) value *= 2;
+    if (isSchwarz) value *= 2;
+
+    return value;
+  }
+
+  static Map<String, double> calculateBalances({
+    required GameType gameType,
+    required List<String> players,
+    required String mainPlayer,
+    String? partner,
+    required bool isWon,
+    required double value,
+  }) {
+    final balances = <String, double>{};
+    
+    if (players.length == 3) {
+      if (gameType == GameType.sauspiel) {
+        throw Exception('Sauspiel nicht möglich mit 3 Spielern');
+      }
+      
+      for (final player in players) {
+        if (player == mainPlayer) {
+          balances[player] = isWon ? value : -value;
+        } else {
+          balances[player] = isWon ? -value/2 : value/2;
+        }
+      }
+    } else {
+      // 4-player game logic
+      for (final player in players) {
+        if (player == mainPlayer) {
+          balances[player] = isWon ? value * 3 : -value * 3;
+        } else if (player == partner && gameType == GameType.sauspiel) {
+          balances[player] = isWon ? value : -value;
+        } else {
+          balances[player] = isWon ? -value : value;
+        }
+      }
+    }
+
+    return balances;
   }
 } 

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../models/game_round.dart';
 import '../models/game_types.dart';
 
@@ -9,20 +11,37 @@ class BalanceCalculator {
     required GameRound round,
     required List<String> players,
   }) {
-    Map<String, double> newBalances = Map.from(currentBalances);
-    double typeMultiplier = getGameTypeMultiplier(round.gameType);
-    double adjustedValue = round.value * typeMultiplier;
+    final newBalances = Map<String, double>.from(currentBalances);
+    
+    if (round.gameType == GameType.ramsch) {
+      // The loser pays the base value, others split it equally
+      final loserPays = round.value;
+      final winnersShare = loserPays / (players.length - 1);
+      
+      for (final player in players) {
+        if (player == round.mainPlayer) {
+          // Loser pays the full amount
+          newBalances[player] = (newBalances[player] ?? 0) - loserPays;
+        } else {
+          // Winners split the amount equally
+          newBalances[player] = (newBalances[player] ?? 0) + winnersShare;
+        }
+      }
+    } else {
+      double typeMultiplier = getGameTypeMultiplier(round.gameType);
+      double adjustedValue = round.value * typeMultiplier;
 
-    switch (round.gameType) {
-      case GameType.sauspiel:
-        _calculateSauspielBalances(newBalances, adjustedValue, round, players);
-        break;
-      case GameType.ramsch:
-        _calculateRamschBalances(newBalances, adjustedValue, round, players);
-        break;
-      default:
-        _calculateSoloBalances(newBalances, adjustedValue, round, players);
-        break;
+      switch (round.gameType) {
+        case GameType.sauspiel:
+          _calculateSauspielBalances(newBalances, adjustedValue, round, players);
+          break;
+        case GameType.ramsch:
+          _calculateRamschBalances(newBalances, adjustedValue, round, players);
+          break;
+        default:
+          _calculateSoloBalances(newBalances, adjustedValue, round, players);
+          break;
+      }
     }
 
     return newBalances;
@@ -68,24 +87,47 @@ class BalanceCalculator {
     GameRound round,
     List<String> players,
   ) {
+    // For 3-player games
+    if (players.length == 3) {
+      if (round.isWon) {
+        balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + valueInEuros;
+        for (String player in players) {
+          if (player != round.mainPlayer) {
+            balances[player] = (balances[player] ?? 0) - (valueInEuros / 2);
+          }
+        }
+      } else {
+        balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - valueInEuros;
+        for (String player in players) {
+          if (player != round.mainPlayer) {
+            balances[player] = (balances[player] ?? 0) + (valueInEuros / 2);
+          }
+        }
+      }
+      return;
+    }
+
+    // For 4-player games
+    // Note: valueInEuros already includes the 2x multiplier for solo games
+    // so we don't multiply it again
     if (round.isWon) {
-      // Solo player gets 3x the value (one from each opponent)
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + (valueInEuros * 3);
+      // Solo player gets the base value from each opponent (3x total)
+      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + (valueInEuros * 1.5);
       
       // Each opponent pays the base value
       for (String player in players) {
         if (player != round.mainPlayer) {
-          balances[player] = (balances[player] ?? 0) - valueInEuros;
+          balances[player] = (balances[player] ?? 0) - (valueInEuros / 2);
         }
       }
     } else {
-      // Solo player pays 3x the value (one to each opponent)
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 3);
+      // Solo player pays the base value to each opponent (3x total)
+      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 1.5);
       
       // Each opponent receives the base value
       for (String player in players) {
         if (player != round.mainPlayer) {
-          balances[player] = (balances[player] ?? 0) + valueInEuros;
+          balances[player] = (balances[player] ?? 0) + (valueInEuros / 2);
         }
       }
     }
@@ -98,13 +140,22 @@ class BalanceCalculator {
     GameRound round,
     List<String> players,
   ) {
-    // In Ramsch, the main player is the loser
-    balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 3);
-    
-    // Other players split the winnings
-    for (String player in players) {
-      if (player != round.mainPlayer) {
-        balances[player] = (balances[player] ?? 0) + valueInEuros;
+    if (players.length == 3) {
+      // For 3-player Ramsch, use baseValue directly
+      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 2);
+      for (String player in players) {
+        if (player != round.mainPlayer) {
+          balances[player] = (balances[player] ?? 0) + valueInEuros;
+        }
+      }
+    } else {
+      // For 4-player Ramsch, use doubled baseValue
+      double adjustedValue = valueInEuros * 2;  // Double the base value for 4 players
+      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (adjustedValue * 3);
+      for (String player in players) {
+        if (player != round.mainPlayer) {
+          balances[player] = (balances[player] ?? 0) + adjustedValue;
+        }
       }
     }
   }
@@ -114,10 +165,66 @@ class BalanceCalculator {
     switch (type) {
       case GameType.sauspiel:
         return 1.0;
-      case GameType.ramsch:
-        return 2.0;
       default:
-        return 2.0; // All solo games are worth double
+        return 2.0; // All solo games and Ramsch are worth double
     }
+  }
+
+  /// Calculates the final settlement between players
+  /// Returns a list of settlements in the format: "Player A owes Player B X€"
+  static List<Settlement> calculateFinalSettlement(Map<String, double> finalBalances) {
+    List<Settlement> settlements = [];
+    List<MapEntry<String, double>> players = finalBalances.entries.toList();
+    
+    // Sort players by balance (negative to positive)
+    players.sort((a, b) => a.value.compareTo(b.value));
+
+    int i = 0;  // Index for players who owe money (negative balance)
+    int j = players.length - 1;  // Index for players who receive money (positive balance)
+
+    while (i < j) {
+      String debtor = players[i].key;
+      String creditor = players[j].key;
+      double debtorBalance = players[i].value.abs();
+      double creditorBalance = players[j].value;
+
+      double settlementAmount = min(debtorBalance, creditorBalance);
+      
+      if (settlementAmount > 0) {
+        settlements.add(Settlement(
+          from: debtor,
+          to: creditor,
+          amount: settlementAmount,
+        ));
+      }
+
+      // Update balances
+      players[i] = MapEntry(debtor, players[i].value + settlementAmount);
+      players[j] = MapEntry(creditor, players[j].value - settlementAmount);
+
+      // Move indices if a balance has been fully settled
+      if (players[i].value.abs() < 0.01) i++;
+      if (players[j].value < 0.01) j--;
+    }
+
+    return settlements;
+  }
+}
+
+/// Represents a single settlement between two players
+class Settlement {
+  final String from;
+  final String to;
+  final double amount;
+
+  Settlement({
+    required this.from,
+    required this.to,
+    required this.amount,
+  });
+
+  @override
+  String toString() {
+    return '$from owes $to ${amount.toStringAsFixed(2)}€';
   }
 } 
