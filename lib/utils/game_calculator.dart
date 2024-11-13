@@ -6,27 +6,29 @@ class GameCalculator {
   static double calculateGameValue({
     required GameType gameType,
     required double baseValue,
-    required List<String> knockingPlayers,
-    required List<String> kontraPlayers,
-    required List<String> rePlayers,
+    List<String> knockingPlayers = const [],
+    List<String> kontraPlayers = const [],
+    List<String> rePlayers = const [],
     bool isSchneider = false,
     bool isSchwarz = false,
   }) {
     double value = baseValue;
     
-    // Special handling for Ramsch
-    if (gameType == GameType.ramsch) {
-      // No need to modify the base value for Ramsch
-      // The value distribution will be handled in BalanceCalculator
-      return baseValue;
+    // Apply klopfen multiplier for ALL game types (including Ramsch)
+    // Each klopfen doubles the value
+    if (knockingPlayers.isNotEmpty) {
+      for (int i = 0; i < knockingPlayers.length; i++) {
+        value *= 2;  // Double the value for each klopfen
+      }
     }
 
-    // For non-Ramsch games, apply multipliers
-    value *= (1 + knockingPlayers.length * 0.5);
-    
-    if (kontraPlayers.isNotEmpty) value *= 2;
-    if (isSchneider) value *= 2;
-    if (isSchwarz) value *= 2;
+    // For non-Ramsch games, apply other multipliers
+    if (gameType != GameType.ramsch) {
+      if (kontraPlayers.isNotEmpty) value *= 2;
+      if (rePlayers.isNotEmpty) value *= 2;
+      if (isSchneider) value *= 2;
+      if (isSchwarz) value *= 2;
+    }
 
     return value;
   }

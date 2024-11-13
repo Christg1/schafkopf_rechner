@@ -14,54 +14,47 @@ class BalanceCalculator {
     final newBalances = Map<String, double>.from(currentBalances);
     
     if (round.gameType == GameType.ramsch) {
-      // The loser pays the base value, others split it equally
-      final loserPays = round.value;
-      final winnersShare = loserPays / (players.length - 1);
-      
-      for (final player in players) {
-        if (player == round.mainPlayer) {
-          // Loser pays the full amount
-          newBalances[player] = (newBalances[player] ?? 0) - loserPays;
-        } else {
-          // Winners split the amount equally
-          newBalances[player] = (newBalances[player] ?? 0) + winnersShare;
-        }
-      }
+      _calculateRamschBalances(
+        balances: newBalances,
+        players: players,
+        loser: round.mainPlayer,
+        valueInEuros: round.value,
+      );
+    } else if (round.gameType == GameType.sauspiel) {
+      _calculateSauspielBalances(
+        balances: newBalances,
+        players: players,
+        mainPlayer: round.mainPlayer,
+        partner: round.partner!,
+        isWon: round.isWon,
+        valueInEuros: round.value,
+      );
     } else {
-      double typeMultiplier = getGameTypeMultiplier(round.gameType);
-      double adjustedValue = round.value * typeMultiplier;
-
-      switch (round.gameType) {
-        case GameType.sauspiel:
-          _calculateSauspielBalances(newBalances, adjustedValue, round, players);
-          break;
-        case GameType.ramsch:
-          _calculateRamschBalances(newBalances, adjustedValue, round, players);
-          break;
-        default:
-          _calculateSoloBalances(newBalances, adjustedValue, round, players);
-          break;
-      }
+      _calculateSoloBalances(
+        balances: newBalances,
+        players: players,
+        mainPlayer: round.mainPlayer,
+        isWon: round.isWon,
+        valueInEuros: round.value,
+      );
     }
 
     return newBalances;
   }
 
-  /// Calculates balances for Sauspiel games
-  static void _calculateSauspielBalances(
-    Map<String, double> balances,
-    double valueInEuros,
-    GameRound round,
-    List<String> players,
-  ) {
-    if (round.partner == null) {
-      throw ArgumentError('Partner cannot be null for Sauspiel');
-    }
-
-    final List<String> team1 = [round.mainPlayer, round.partner!];
+  /// Keep all existing helper methods but make them update the balances map directly
+  static void _calculateSauspielBalances({
+    required Map<String, double> balances,
+    required List<String> players,
+    required String mainPlayer,
+    required String partner,
+    required bool isWon,
+    required double valueInEuros,
+  }) {
+    final List<String> team1 = [mainPlayer, partner];
     final List<String> team2 = players.where((p) => !team1.contains(p)).toList();
 
-    if (round.isWon) {
+    if (isWon) {
       // Team 1 wins
       for (final winner in team1) {
         balances[winner] = (balances[winner] ?? 0) + valueInEuros;
@@ -80,87 +73,65 @@ class BalanceCalculator {
     }
   }
 
-  /// Calculates balances for Solo games (including Wenz, Geier, etc.)
-  static void _calculateSoloBalances(
-    Map<String, double> balances,
-    double valueInEuros,
-    GameRound round,
-    List<String> players,
-  ) {
-    // For 3-player games
+  static void _calculateSoloBalances({
+    required Map<String, double> balances,
+    required List<String> players,
+    required String mainPlayer,
+    required bool isWon,
+    required double valueInEuros,
+  }) {
     if (players.length == 3) {
-      if (round.isWon) {
-        balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + valueInEuros;
-        for (String player in players) {
-          if (player != round.mainPlayer) {
-            balances[player] = (balances[player] ?? 0) - (valueInEuros / 2);
-          }
-        }
-      } else {
-        balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - valueInEuros;
-        for (String player in players) {
-          if (player != round.mainPlayer) {
-            balances[player] = (balances[player] ?? 0) + (valueInEuros / 2);
-          }
-        }
-      }
-      return;
-    }
-
-    // For 4-player games
-    // Note: valueInEuros already includes the 2x multiplier for solo games
-    // so we don't multiply it again
-    if (round.isWon) {
-      // Solo player gets the base value from each opponent (3x total)
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + (valueInEuros * 1.5);
-      
-      // Each opponent pays the base value
-      for (String player in players) {
-        if (player != round.mainPlayer) {
-          balances[player] = (balances[player] ?? 0) - (valueInEuros / 2);
+      // 3-player game
+      for (final player in players) {
+        if (player == mainPlayer) {
+          balances[player] = (balances[player] ?? 0) + 
+              (isWon ? valueInEuros * 2 : -valueInEuros * 2);
+        } else {
+          balances[player] = (balances[player] ?? 0) + 
+              (isWon ? -valueInEuros : valueInEuros);
         }
       }
     } else {
-      // Solo player pays the base value to each opponent (3x total)
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 1.5);
-      
-      // Each opponent receives the base value
-      for (String player in players) {
-        if (player != round.mainPlayer) {
-          balances[player] = (balances[player] ?? 0) + (valueInEuros / 2);
+      // 4-player game
+      for (final player in players) {
+        if (player == mainPlayer) {
+          balances[player] = (balances[player] ?? 0) + 
+              (isWon ? valueInEuros * 3 : -valueInEuros * 3);
+        } else {
+          balances[player] = (balances[player] ?? 0) + 
+              (isWon ? -valueInEuros : valueInEuros);
         }
       }
     }
   }
 
-  /// Calculates balances for Ramsch games
-  static void _calculateRamschBalances(
-    Map<String, double> balances,
-    double valueInEuros,
-    GameRound round,
-    List<String> players,
-  ) {
+  static void _calculateRamschBalances({
+    required Map<String, double> balances,
+    required List<String> players,
+    required String loser,
+    required double valueInEuros,
+  }) {
     if (players.length == 3) {
-      // For 3-player Ramsch, use baseValue directly
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (valueInEuros * 2);
+      // For 3-player Ramsch
+      balances[loser] = (balances[loser] ?? 0) - (valueInEuros * 2);
       for (String player in players) {
-        if (player != round.mainPlayer) {
+        if (player != loser) {
           balances[player] = (balances[player] ?? 0) + valueInEuros;
         }
       }
     } else {
-      // For 4-player Ramsch, use doubled baseValue
+      // For 4-player Ramsch
       double adjustedValue = valueInEuros * 2;  // Double the base value for 4 players
-      balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - (adjustedValue * 3);
+      balances[loser] = (balances[loser] ?? 0) - (adjustedValue * 3);
       for (String player in players) {
-        if (player != round.mainPlayer) {
+        if (player != loser) {
           balances[player] = (balances[player] ?? 0) + adjustedValue;
         }
       }
     }
   }
 
-  /// Add multiplier for game types
+  // Keep the existing getGameTypeMultiplier method
   static double getGameTypeMultiplier(GameType type) {
     switch (type) {
       case GameType.sauspiel:

@@ -258,7 +258,7 @@ class GameplayScreen extends StatelessWidget {
                         );
                         
                         // Add the round
-                        await _saveRound(context, session, round);
+                        await _saveRound(context, session, round, knockingPlayers);
                         
                         // Close loading indicator and dialog
                         Navigator.of(context).pop(); // Close loading
@@ -362,26 +362,31 @@ class GameplayScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _saveRound(BuildContext context, Session session, GameRound round) async {
+  Future<void> _saveRound(BuildContext context, Session session, GameRound round, List<String> knockingPlayers) async {
     try {
-      // For Ramsch games, make sure we're using the base value directly
+      // For Ramsch games, calculate the proper value with klopfen
       if (round.gameType == GameType.ramsch) {
-        final baseValue = session.baseValue;
+        double baseValue = session.baseValue;
+        // Calculate klopfen multiplier (2^n where n is number of klopfen)
+        double klopfenMultiplier = pow(2.0, knockingPlayers.length).toDouble();
+        
         final updatedRound = GameRound(
           gameType: round.gameType,
           mainPlayer: round.mainPlayer,
           partner: round.partner,
           isWon: round.isWon,
-          value: baseValue,  // Use base value directly
+          value: baseValue * klopfenMultiplier,
           timestamp: DateTime.now(),
         );
         await SessionService().addRound(session.id, updatedRound);
       } else {
         await SessionService().addRound(session.id, round);
       }
-      // ... rest of the method
     } catch (e) {
-      // ... error handling
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler beim Speichern: $e')),
+      );
     }
   }
 

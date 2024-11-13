@@ -40,4 +40,39 @@ extension GameTypeEmoji on GameType {
   bool get allowedInThreePlayerGame {
     return this != GameType.sauspiel;  // Sauspiel requires 4 players
   }
+}
+
+extension GameTypeDisplay on GameType {
+  String get displayName {
+    switch (this) {
+      case GameType.sauspiel:
+        return 'Sauspiel';
+      case GameType.wenz:
+        return 'Wenz';
+      case GameType.farbwenz:
+        return 'Farbwenz';
+      case GameType.geier:
+        return 'Geier';
+      case GameType.farbgeier:
+        return 'Farbgeier';
+      case GameType.farbspiel:
+        return 'Farbsolo';
+      case GameType.ramsch:
+        return 'Ramsch';
+    }
+  }
+
+  bool get isSolo {
+    switch (this) {
+      case GameType.wenz:
+      case GameType.farbwenz:
+      case GameType.geier:
+      case GameType.farbgeier:
+      case GameType.farbspiel:
+        return true;
+      case GameType.sauspiel:
+      case GameType.ramsch:
+        return false;
+    }
+  }
 } 

@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:schafkopf_rechner/models/game_types.dart';
+import 'package:schafkopf_rechner/models/player.dart';
 import '../models/session.dart';
 import '../models/game_round.dart';
 import '../utils/balance_calculator.dart';
+import '../models/statistics_data.dart';
 
 class SessionService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -37,58 +40,53 @@ class SessionService {
 
   // Add round and update balances
   Future<void> addRound(String sessionId, GameRound round) async {
-    try {
-      final sessionRef = _db.collection('sessions').doc(sessionId);
-      final sessionDoc = await sessionRef.get();
-      final session = Session.fromFirestore(sessionDoc);
-      
-      // Add round
-      final roundData = round.toFirestore();
-      
-      // Get updated session with new round
-      final updatedSession = Session(
-        id: session.id,
-        players: session.players,
-        baseValue: session.baseValue,
-        rounds: [...session.rounds, round],
-        currentDealer: (session.currentDealer + 1) % session.players.length,
-        isActive: session.isActive,
-        date: session.date,
-      );
-
-      // Update with new balances from getter
-      await sessionRef.update({
-        'rounds': FieldValue.arrayUnion([roundData]),
-        'playerBalances': updatedSession.playerBalances,
-        'currentDealer': updatedSession.currentDealer,
-      });
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  // End session and update player totals
-  Future<void> endSession(String sessionId) async {
     final sessionRef = _db.collection('sessions').doc(sessionId);
     final sessionDoc = await sessionRef.get();
     final session = Session.fromFirestore(sessionDoc);
 
-    // Get final balances
-    final finalBalances = session.playerBalances;
+    final newBalances = BalanceCalculator.calculateNewBalances(
+      currentBalances: session.playerBalances,
+      round: round,
+      players: session.players,
+    );
 
-    // Update player totals
-    for (var entry in finalBalances.entries) {
-      final playerRef = _db.collection('players').doc(entry.key.toLowerCase());
-      await playerRef.update({
-        'totalEarnings': FieldValue.increment(entry.value),
-      });
+    final batch = _db.batch();
+
+    // Update session
+    batch.update(sessionRef, {
+      'rounds': FieldValue.arrayUnion([round.toFirestore()]),
+      'playerBalances': newBalances,
+      'currentDealer': (session.currentDealer + 1) % session.players.length,
+    });
+
+    // Update player stats - Use FieldValue.increment for atomic updates
+    for (final player in session.players) {
+      final playerRef = _db.collection('players').doc(player.toLowerCase());
+      
+      batch.set(playerRef, {
+        'name': player,
+        'gamesParticipated': FieldValue.increment(1),
+        'gamesPlayed': FieldValue.increment(player == round.mainPlayer ? 1 : 0),
+        'gamesWon': FieldValue.increment(
+          player == round.mainPlayer && round.isWon ? 1 : 0
+        ),
+        'totalEarnings': FieldValue.increment(newBalances[player]! - (session.playerBalances[player] ?? 0)),  // Fix: Calculate the difference
+        'gameTypeStats.${round.gameType.name}': FieldValue.increment(
+          player == round.mainPlayer ? 1 : 0
+        ),
+      }, SetOptions(merge: true));
     }
 
-    // Mark session as inactive
-    await sessionRef.update({
-      'isActive': false,
-      'endDate': Timestamp.now(),
-    });
+    await batch.commit();
+  }
+
+  // End session and update player totals
+  Future<void> endSession(String sessionId) async {
+    // Remove this method or make it only mark the session as inactive
+    final sessionRef = _db.collection('sessions').doc(sessionId);
+    
+    // Just mark as inactive, don't update player stats again
+    await sessionRef.update({'isActive': false});
   }
 
   // Fix any inconsistencies
