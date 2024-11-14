@@ -364,10 +364,8 @@ class GameplayScreen extends StatelessWidget {
 
   Future<void> _saveRound(BuildContext context, Session session, GameRound round, List<String> knockingPlayers) async {
     try {
-      // For Ramsch games, calculate the proper value with klopfen
       if (round.gameType == GameType.ramsch) {
         double baseValue = session.baseValue;
-        // Calculate klopfen multiplier (2^n where n is number of klopfen)
         double klopfenMultiplier = pow(2.0, knockingPlayers.length).toDouble();
         
         final updatedRound = GameRound(
@@ -375,12 +373,21 @@ class GameplayScreen extends StatelessWidget {
           mainPlayer: round.mainPlayer,
           partner: round.partner,
           isWon: round.isWon,
-          value: baseValue * klopfenMultiplier,
+          value: baseValue * klopfenMultiplier,  // This is already the total value for Ramsch
           timestamp: DateTime.now(),
         );
         await SessionService().addRound(session.id, updatedRound);
       } else {
-        await SessionService().addRound(session.id, round);
+        // For non-Ramsch games, multiply by (players.length - 1) to store total win amount
+        final updatedRound = GameRound(
+          gameType: round.gameType,
+          mainPlayer: round.mainPlayer,
+          partner: round.partner,
+          isWon: round.isWon,
+          value: round.value * (session.players.length - 1),  // Convert per-player to total
+          timestamp: DateTime.now(),
+        );
+        await SessionService().addRound(session.id, updatedRound);
       }
     } catch (e) {
       if (!context.mounted) return;

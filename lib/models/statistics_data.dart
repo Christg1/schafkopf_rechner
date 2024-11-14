@@ -6,6 +6,7 @@ import 'session.dart';
 import 'game_types.dart';
 import 'game_round.dart';
 import 'player.dart';
+import '../services/records_calculator.dart';
 
 class StatisticsData {
   final Map<String, PlayerStatistics> playerStats;
@@ -29,7 +30,7 @@ class StatisticsData {
       final balanceHistory = _calculateBalanceHistory(sessions);
       print('Calculated balance history');
       
-      final records = _calculateRecords(sessions);
+      final records = RecordsCalculator.calculateRecords(sessions);
       print('Calculated records');
 
       return StatisticsData(
@@ -80,89 +81,6 @@ class StatisticsData {
     }
     
     return stats;
-  }
-
-  static List<GameRecord> _calculateRecords(List<Session> sessions) {
-    List<GameRecord> records = [];
-
-    // Most valuable streak
-    Map<String, List<double>> playerStreaks = {};
-    for (final session in sessions) {
-      for (final round in session.rounds) {
-        if (round.mainPlayer != null) {
-          playerStreaks.putIfAbsent(round.mainPlayer, () => []);
-          playerStreaks[round.mainPlayer]!.add(
-            round.isWon ? round.value : -round.value
-          );
-        }
-      }
-    }
-
-    if (playerStreaks.isNotEmpty) {
-      double maxStreakValue = 0;
-      String maxStreakPlayer = '';
-      int maxStreakLength = 0;
-
-      for (final entry in playerStreaks.entries) {
-        List<double> values = entry.value;
-        for (int i = 0; i < values.length; i++) {
-          double sum = 0;
-          for (int j = i; j < values.length; j++) {
-            sum += values[j];
-            if (sum > maxStreakValue) {
-              maxStreakValue = sum;
-              maxStreakPlayer = entry.key;
-              maxStreakLength = j - i + 1;
-            }
-          }
-        }
-      }
-
-      if (maxStreakValue > 0) {
-        records.add(GameRecord(
-          type: RecordType.mostValuableStreak,
-          player: maxStreakPlayer,
-          value: maxStreakValue,
-          additionalInfo: '$maxStreakLength Spiele',
-        ));
-      }
-    }
-
-    // Longest streak
-    Map<String, int> currentStreaks = {};
-    Map<String, int> maxStreaks = {};
-    
-    for (final session in sessions) {
-      for (final round in session.rounds) {
-        if (round.mainPlayer != null) {
-          if (round.isWon) {
-            currentStreaks[round.mainPlayer] = (currentStreaks[round.mainPlayer] ?? 0) + 1;
-            maxStreaks[round.mainPlayer] = max(
-              maxStreaks[round.mainPlayer] ?? 0,
-              currentStreaks[round.mainPlayer]!
-            );
-          } else {
-            currentStreaks[round.mainPlayer] = 0;
-          }
-        }
-      }
-    }
-
-    if (maxStreaks.isNotEmpty) {
-      final longestStreak = maxStreaks.entries
-          .reduce((a, b) => a.value > b.value ? a : b);
-      records.add(GameRecord(
-        type: RecordType.longestStreak,
-        player: longestStreak.key,
-        value: longestStreak.value.toDouble(),
-        additionalInfo: '${longestStreak.value} Siege in Folge',
-      ));
-    }
-
-    // Continue with other records, adding similar null checks...
-    // For each record calculation, wrap in if (collection.isNotEmpty) { ... }
-
-    return records;
   }
 
   static Map<String, List<double>> _calculateBalanceHistory(List<Session> sessions) {
@@ -272,28 +190,29 @@ class PlayerStatistics {
 }
 
 enum RecordType {
-  mostValuableStreak,
-  longestStreak,
-  highestSingleWin,
-  biggestComeback,
   mostGamesInSession,
-  highestDailyVolume,
-  bestWinRate,
   mostGamesPlayed,
-  highestAverageEarnings,
   mostSoloGames,
-  bestSoloWinRate,
   mostRamschLosses,
-  bestTeamPlayer,
+  longestStreak,
   worstLossStreak,
-  mostConsistentPlayer,
+  bestWinRate,
+  bestSoloWinRate,
+  highestDailyVolume,
+  biggestComeback,
+  highestSingleWin, 
+  mostValuableStreak, 
+  highestAverageEarnings, 
+  mostConsistentPlayer, 
+  bestTeamPlayer,
+  // ... any other record types
 }
 
 class GameRecord {
   final String player;
   final double value;
   final RecordType type;
-  final String? additionalInfo;  // For extra context like dates or game types
+  final String? additionalInfo;
 
   const GameRecord({
     required this.player,
@@ -303,14 +222,7 @@ class GameRecord {
   });
 }
 
-class SoloStats {
-  int gamesPlayed = 0;
-  int gamesWon = 0;
-  double get winRate => gamesPlayed > 0 ? gamesWon / gamesPlayed : 0;
-}
-
-class TeamPlayStats {
-  int gamesPlayed = 0;
-  int gamesWon = 0;
-  double get winRate => gamesPlayed > 0 ? gamesWon / gamesPlayed : 0;
+class WinRateStats {
+  int total = 0;
+  int wins = 0;
 } 

@@ -26,8 +26,8 @@ class GameCalculator {
     if (gameType != GameType.ramsch) {
       if (kontraPlayers.isNotEmpty) value *= 2;
       if (rePlayers.isNotEmpty) value *= 2;
-      if (isSchneider) value *= 2;
-      if (isSchwarz) value *= 2;
+      if (isSchneider) value += baseValue;
+      if (isSchwarz) value += baseValue;
     }
 
     return value;

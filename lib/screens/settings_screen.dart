@@ -68,7 +68,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               title: const Text('Entwickler'),
-              subtitle: const Text('Your Name'),
+              subtitle: const Text('Christoph Lennartz'),
               onTap: () {
                 // Could open a dialog with more info or link to website
               },

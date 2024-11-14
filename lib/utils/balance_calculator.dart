@@ -81,7 +81,7 @@ class BalanceCalculator {
     required double valueInEuros,
   }) {
     if (players.length == 3) {
-      // 3-player game
+      // 3-player gamea
       for (final player in players) {
         if (player == mainPlayer) {
           balances[player] = (balances[player] ?? 0) + 

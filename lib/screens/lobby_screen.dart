@@ -19,6 +19,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Neue Session'),
+        flexibleSpace: Opacity(
+          opacity: 0.1,
+          child: Image.asset(
+            'assets/images/schafkopf.png',
+            fit: BoxFit.cover,
+          ),
+        ),
       ),
       body: Column(
         children: [

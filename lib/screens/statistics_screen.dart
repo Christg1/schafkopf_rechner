@@ -14,10 +14,10 @@ import 'package:schafkopf_rechner/services/statistics_service.dart';
 import 'package:schafkopf_rechner/widgets/balance_history_chart.dart';
 import 'package:schafkopf_rechner/widgets/game_type_distribution_chart.dart';
 import 'package:schafkopf_rechner/widgets/average_game_value_chart.dart';
+import 'package:schafkopf_rechner/services/rankings_calculator.dart';
 import '../models/game_round.dart';
 import '../models/game_types.dart';
 import '../models/session.dart';
-
 
 class StatisticsScreen extends StatelessWidget {
   const StatisticsScreen({super.key});
@@ -39,25 +39,46 @@ class StatisticsScreen extends StatelessWidget {
             ],
           ),
         ),
-        body: StreamBuilder<StatisticsData>(
-          stream: StatisticsService().getStatisticsStream(),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const CustomLoadingIndicator();
-            }
+        body: Stack(
+          children: [
+            Positioned(
+              right: -30,
+              bottom: 20,
+              child: Opacity(
+                opacity: 0.1,
+                child: Transform.rotate(
+                  angle: 0.2,
+                  child: Image.asset(
+                    'assets/images/eichel.png',
+                    width: 100,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    isAntiAlias: true,
+                  ),
+                ),
+              ),
+            ),
+            StreamBuilder<StatisticsData>(
+              stream: StatisticsService().getStatisticsStream(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const CustomLoadingIndicator();
+                }
 
-            final stats = snapshot.data!;
-            
-            return TabBarView(
-              children: [
-                _PlayersTab(statistics: stats),
-                _SessionsTab(statistics: stats),
-                _RecordsTab(statistics: stats),
-                _BestenlistenTab(statistics: stats),
-                _VerlaufTab(statistics: stats),
-              ],
-            );
-          },
+                final stats = snapshot.data!;
+                
+                return TabBarView(
+                  children: [
+                    _PlayersTab(statistics: stats),
+                    _SessionsTab(statistics: stats),
+                    _RecordsTab(statistics: stats),
+                    _BestenlistenTab(statistics: stats),
+                    _VerlaufTab(statistics: stats),
+                  ],
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -458,7 +479,7 @@ class PlayerDetailsSheet extends StatelessWidget {
                       ? Text('Spieler: ${pair.session.players.join(", ")}')
                       : null,
               trailing: Text(
-                '${pair.round.isWon ? "+" : "-"}${pair.round.value.toStringAsFixed(2)}€',
+                '${pair.round.isWon ? "+" : "-"}${(pair.round.value * (pair.session.players.length - 1)).toStringAsFixed(2)}€',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: pair.round.isWon ? Colors.green : Colors.red,
@@ -722,7 +743,7 @@ class SessionDetailsSheet extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '${round.value.toStringAsFixed(2)}€',
+                          '${(round.value * (session.players.length - 1)).toStringAsFixed(2)}€',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -854,7 +875,6 @@ class _RecordsTab extends StatelessWidget {
         ]),
         _buildRecordSection('⏱️ Zeitliche Rekorde', [
           RecordType.mostGamesInSession,
-          
           RecordType.highestDailyVolume,
           RecordType.worstLossStreak,
         ]),
@@ -901,7 +921,7 @@ class _RecordsTab extends StatelessWidget {
         title: Text(_getRecordTitle(record.type)),
         subtitle: Text(record.player),
         trailing: Text(
-          _formatRecordValue(record),
+          _formatValue(record),
           style: TextStyle(
             color: _getValueColor(record),
             fontWeight: FontWeight.bold,
@@ -929,6 +949,8 @@ class _RecordsTab extends StatelessWidget {
       case RecordType.bestTeamPlayer: return '🤝';
       case RecordType.worstLossStreak: return '📉';
       case RecordType.mostConsistentPlayer: return '🎖️';
+     
+        // TODO: Handle this case.
     }
   }
 
@@ -950,20 +972,25 @@ class _RecordsTab extends StatelessWidget {
       case RecordType.bestTeamPlayer: return 'Bester Teamplayer';
       case RecordType.worstLossStreak: return 'Längste Verlustserie';
       case RecordType.mostConsistentPlayer: return 'Konstantester Spieler';
+     
+        // TODO: Handle this case.
     }
   }
 
-  String _formatRecordValue(GameRecord record) {
+  String _formatValue(GameRecord record) {
     switch (record.type) {
-      case RecordType.longestStreak:
       case RecordType.mostGamesInSession:
       case RecordType.mostGamesPlayed:
       case RecordType.mostSoloGames:
       case RecordType.mostRamschLosses:
-        return '${record.value.toStringAsFixed(0)}x';
- 
-        return '${record.value.toStringAsFixed(0)} Min.';
+      case RecordType.longestStreak:
+      case RecordType.worstLossStreak:
+      case RecordType.mostConsistentPlayer:
+        return record.value.toStringAsFixed(0);  // Just the number
+      case RecordType.highestDailyVolume:
+        return '${record.value.toStringAsFixed(2)}€';  // Money format
       case RecordType.bestWinRate:
+        return '${(record.value * 100).toStringAsFixed(1)}%';  // Convert to percentage
       case RecordType.bestSoloWinRate:
         return '${(record.value * 100).toStringAsFixed(1)}%';
       default:
@@ -989,6 +1016,8 @@ class _RecordsTab extends StatelessWidget {
       case RecordType.bestTeamPlayer: return Colors.blue;
       case RecordType.worstLossStreak: return Colors.red;
       case RecordType.mostConsistentPlayer: return Colors.green;
+     
+        // TODO: Handle this case.
     }
   }
 }
@@ -1000,75 +1029,83 @@ class _BestenlistenTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rankings = _calculateRankings(statistics);
+    final rankings = RankingsCalculator.calculateRankings(statistics);
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _buildRankingCard(
-          context,
-          title: 'Beste Sauspiel-Spieler',
-          icon: '🐷',
-          rankings: rankings.bestSauspielPlayers,
-          valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
-        ),
+        if (rankings.bestSauspielPlayers.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Beste Sauspiel-Spieler',
+            icon: '🐷',
+            rankings: rankings.bestSauspielPlayers,
+            valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Wenz-Könige',
-          icon: '🃏',
-          rankings: rankings.bestWenzPlayers,
-          valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
-        ),
+        if (rankings.bestWenzPlayers.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Wenz-Könige',
+            icon: '🃏',
+            rankings: rankings.bestWenzPlayers,
+            valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Solo-Meister',
-          icon: '👑',
-          rankings: rankings.bestSoloPlayers,
-          valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
-        ),
+        if (rankings.bestSoloPlayers.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Solo-Meister',
+            icon: '👑',
+            rankings: rankings.bestSoloPlayers,
+            valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Ramsch-Überlebende',
-          icon: '💥',
-          rankings: rankings.leastRamschLosses,
-          valueFormatter: (value) => '${value.toStringAsFixed(1)}%',
-          isInverted: true,
-        ),
+        if (rankings.leastRamschLosses.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Ramsch-Überlebende',
+            icon: '💥',
+            rankings: rankings.leastRamschLosses,
+            valueFormatter: (value) => '${value.toStringAsFixed(1)}%',
+            isInverted: true,
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Kontra-Könige',
-          icon: '🎯',
-          rankings: rankings.bestKontraPlayers,
-          valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
-        ),
+        if (rankings.bestKontraPlayers.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Kontra-Könige',
+            icon: '🎯',
+            rankings: rankings.bestKontraPlayers,
+            valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Höchste Gewinnquote (Solo)',
-          icon: '📈',
-          rankings: rankings.highestSoloEarnings,
-          valueFormatter: (value) => '${value.toStringAsFixed(2)}€/Spiel',
-        ),
+        if (rankings.highestSoloEarnings.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Höchste Gewinnquote (Solo)',
+            icon: '📈',
+            rankings: rankings.highestSoloEarnings,
+            valueFormatter: (value) => '${value.toStringAsFixed(2)}€/Spiel',
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Geier-Experten',
-          icon: '🦅',
-          rankings: rankings.bestGeierPlayers,
-          valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
-        ),
+        if (rankings.bestGeierPlayers.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Geier-Experten',
+            icon: '🦅',
+            rankings: rankings.bestGeierPlayers,
+            valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
+          ),
         const SizedBox(height: 16),
-        _buildRankingCard(
-          context,
-          title: 'Farbspiel-Profis',
-          icon: '🎨',
-          rankings: rankings.bestFarbspielPlayers,
-          valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
-        ),
+        if (rankings.bestFarbspielPlayers.isNotEmpty)
+          _buildRankingCard(
+            context,
+            title: 'Farbspiel-Profis',
+            icon: '🎨',
+            rankings: rankings.bestFarbspielPlayers,
+            valueFormatter: (value) => '${(value * 100).toStringAsFixed(1)}%',
+          ),
       ],
     );
   }
@@ -1081,6 +1118,10 @@ class _BestenlistenTab extends StatelessWidget {
     required String Function(double value) valueFormatter,
     bool isInverted = false,
   }) {
+    if (rankings.isEmpty) {
+      return const SizedBox.shrink();  // Don't show empty cards
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1145,286 +1186,6 @@ class _BestenlistenTab extends StatelessWidget {
   }
 }
 
-class PlayerRanking {
-  final String name;
-  final double value;
-  final String? additionalInfo;
-
-  PlayerRanking({
-    required this.name,
-    required this.value,
-    this.additionalInfo,
-  });
-}
-
-class Rankings {
-  final List<PlayerRanking> bestSauspielPlayers;
-  final List<PlayerRanking> bestWenzPlayers;
-  final List<PlayerRanking> bestSoloPlayers;
-  final List<PlayerRanking> leastRamschLosses;
-  final List<PlayerRanking> bestKontraPlayers;
-  final List<PlayerRanking> highestSoloEarnings;
-  final List<PlayerRanking> bestGeierPlayers;
-  final List<PlayerRanking> bestFarbspielPlayers;
-
-  Rankings({
-    required this.bestSauspielPlayers,
-    required this.bestWenzPlayers,
-    required this.bestSoloPlayers,
-    required this.leastRamschLosses,
-    required this.bestKontraPlayers,
-    required this.highestSoloEarnings,
-    required this.bestGeierPlayers,
-    required this.bestFarbspielPlayers,
-  });
-}
-
-Rankings _calculateRankings(StatisticsData statistics) {
-  // Helper function to get top 3 rankings
-  List<PlayerRanking> getTop3(Map<String, double> values, {bool inverse = false}) {
-    var sorted = values.entries.toList()
-      ..sort((a, b) => inverse 
-        ? a.value.compareTo(b.value)
-        : b.value.compareTo(a.value));
-    return sorted.take(3).map((e) => PlayerRanking(
-      name: e.key,
-      value: e.value,
-    )).toList();
-  }
-
-  // Best Sauspiel Players (win rate in Sauspiel games)
-  Map<String, double> sauspielStats = {};
-  Map<String, int> sauspielGames = {};
-  Map<String, int> sauspielWins = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType == GameType.sauspiel) {
-        final players = [round.mainPlayer, round.partner!];
-        for (final player in players) {
-          sauspielGames[player] = (sauspielGames[player] ?? 0) + 1;
-          if (round.isWon) {
-            sauspielWins[player] = (sauspielWins[player] ?? 0) + 1;
-          }
-        }
-      }
-    }
-  }
-  
-  for (final player in sauspielGames.keys) {
-    if (sauspielGames[player]! >= 5) { // Minimum 5 games
-      sauspielStats[player] = sauspielWins[player]! / sauspielGames[player]!;
-    }
-  }
-
-  // Best Wenz Players
-  Map<String, double> wenzStats = {};
-  Map<String, int> wenzGames = {};
-  Map<String, int> wenzWins = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType == GameType.wenz || round.gameType == GameType.farbwenz) {
-        wenzGames[round.mainPlayer] = (wenzGames[round.mainPlayer] ?? 0) + 1;
-        if (round.isWon) {
-          wenzWins[round.mainPlayer] = (wenzWins[round.mainPlayer] ?? 0) + 1;
-        }
-      }
-    }
-  }
-  
-  for (final player in wenzGames.keys) {
-    if (wenzGames[player]! >= 3) { // Minimum 3 games
-      wenzStats[player] = wenzWins[player]! / wenzGames[player]!;
-    }
-  }
-
-  // Best Solo Players (all solo types)
-  Map<String, double> soloStats = {};
-  Map<String, int> soloGames = {};
-  Map<String, int> soloWins = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType.isSolo) {
-        soloGames[round.mainPlayer] = (soloGames[round.mainPlayer] ?? 0) + 1;
-        if (round.isWon) {
-          soloWins[round.mainPlayer] = (soloWins[round.mainPlayer] ?? 0) + 1;
-        }
-      }
-    }
-  }
-  
-  for (final player in soloGames.keys) {
-    if (soloGames[player]! >= 3) { // Minimum 3 games
-      soloStats[player] = soloWins[player]! / soloGames[player]!;
-    }
-  }
-
-  // Ramsch Survivors (lowest percentage of Ramsch losses)
-  Map<String, double> ramschStats = {};
-  Map<String, int> totalGames = {};
-  Map<String, int> ramschLosses = {};
-  
-  for (final session in statistics.sessions) {
-    for (final player in session.players) {
-      totalGames[player] = (totalGames[player] ?? 0) + session.rounds.length;
-    }
-    for (final round in session.rounds) {
-      if (round.gameType == GameType.ramsch) {
-        ramschLosses[round.mainPlayer] = (ramschLosses[round.mainPlayer] ?? 0) + 1;
-      }
-    }
-  }
-  
-  for (final player in totalGames.keys) {
-    if (totalGames[player]! >= 10) { // Minimum 10 total games
-      ramschStats[player] = (ramschLosses[player] ?? 0) / totalGames[player]! * 100;
-    }
-  }
-
-  // Kontra Kings (win rate when playing against solos)
-  Map<String, double> kontraStats = {};
-  Map<String, int> kontraGames = {};
-  Map<String, int> kontraWins = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType.isSolo) {
-        for (final player in session.players) {
-          if (player != round.mainPlayer) {
-            kontraGames[player] = (kontraGames[player] ?? 0) + 1;
-            if (!round.isWon) { // Solo player lost = Kontra won
-              kontraWins[player] = (kontraWins[player] ?? 0) + 1;
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  for (final player in kontraGames.keys) {
-    if (kontraGames[player]! >= 5) { // Minimum 5 games
-      kontraStats[player] = kontraWins[player]! / kontraGames[player]!;
-    }
-  }
-
-  // Highest Solo Earnings (average earnings per solo game)
-  Map<String, double> soloEarnings = {};
-  Map<String, double> totalSoloEarnings = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType.isSolo) {
-        final earnings = round.isWon ? round.value * 3 : -round.value * 3;
-        totalSoloEarnings[round.mainPlayer] = 
-            (totalSoloEarnings[round.mainPlayer] ?? 0) + earnings;
-      }
-    }
-  }
-  
-  for (final player in soloGames.keys) {
-    if (soloGames[player]! >= 3) { // Minimum 3 solo games
-      soloEarnings[player] = totalSoloEarnings[player]! / soloGames[player]!;
-    }
-  }
-
-  // Best Geier Players
-  Map<String, double> geierStats = {};
-  Map<String, int> geierGames = {};
-  Map<String, int> geierWins = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType == GameType.geier || round.gameType == GameType.farbgeier) {
-        geierGames[round.mainPlayer] = (geierGames[round.mainPlayer] ?? 0) + 1;
-        if (round.isWon) {
-          geierWins[round.mainPlayer] = (geierWins[round.mainPlayer] ?? 0) + 1;
-        }
-      }
-    }
-  }
-  
-  for (final player in geierGames.keys) {
-    if (geierGames[player]! >= 3) { // Minimum 3 games
-      geierStats[player] = geierWins[player]! / geierGames[player]!;
-    }
-  }
-
-  // Best Farbspiel Players
-  Map<String, double> farbspielStats = {};
-  Map<String, int> farbspielGames = {};
-  Map<String, int> farbspielWins = {};
-  
-  for (final session in statistics.sessions) {
-    for (final round in session.rounds) {
-      if (round.gameType == GameType.farbspiel) {
-        farbspielGames[round.mainPlayer] = (farbspielGames[round.mainPlayer] ?? 0) + 1;
-        if (round.isWon) {
-          farbspielWins[round.mainPlayer] = (farbspielWins[round.mainPlayer] ?? 0) + 1;
-        }
-      }
-    }
-  }
-  
-  for (final player in farbspielGames.keys) {
-    if (farbspielGames[player]! >= 3) { // Minimum 3 games
-      farbspielStats[player] = farbspielWins[player]! / farbspielGames[player]!;
-    }
-  }
-
-  return Rankings(
-    bestSauspielPlayers: getTop3(sauspielStats)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${sauspielWins[r.name]}/${sauspielGames[r.name]} Spiele',
-      )).toList(),
-    bestWenzPlayers: getTop3(wenzStats)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${wenzWins[r.name]}/${wenzGames[r.name]} Spiele',
-      )).toList(),
-    bestSoloPlayers: getTop3(soloStats)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${soloWins[r.name]}/${soloGames[r.name]} Spiele',
-      )).toList(),
-    leastRamschLosses: getTop3(ramschStats, inverse: true)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${ramschLosses[r.name] ?? 0} Ramsche in ${totalGames[r.name]} Spielen',
-      )).toList(),
-    bestKontraPlayers: getTop3(kontraStats)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${kontraWins[r.name]}/${kontraGames[r.name]} Spiele',
-      )).toList(),
-    highestSoloEarnings: getTop3(soloEarnings)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${soloGames[r.name]} Soli gespielt',
-      )).toList(),
-    bestGeierPlayers: getTop3(geierStats)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${geierWins[r.name]}/${geierGames[r.name]} Spiele',
-      )).toList(),
-    bestFarbspielPlayers: getTop3(farbspielStats)
-      .map((r) => PlayerRanking(
-        name: r.name,
-        value: r.value,
-        additionalInfo: '${farbspielWins[r.name]}/${farbspielGames[r.name]} Spiele',
-      )).toList(),
-  );
-}
-
 class _VerlaufTab extends StatelessWidget {
   final StatisticsData statistics;
 
@@ -1435,7 +1196,6 @@ class _VerlaufTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // Balance History Chart
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1458,8 +1218,6 @@ class _VerlaufTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        
-        // Game Type Distribution Over Time
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1482,8 +1240,6 @@ class _VerlaufTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-
-        // Average Game Value Trend
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1510,10 +1266,6 @@ class _VerlaufTab extends StatelessWidget {
   }
 }
 
-// Add this class at the top of the file
-class WinRateStats {
-  int total = 0;
-  int wins = 0;
-}
+
 
  

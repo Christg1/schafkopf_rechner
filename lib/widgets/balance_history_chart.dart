@@ -7,129 +7,155 @@ import '../models/session.dart';
 
 class BalanceHistoryChart extends StatelessWidget {
   final List<Session> sessions;
+  // Add some predefined colors for the lines
+  final List<Color> lineColors = [
+    Colors.blue,
+    Colors.red,
+    Colors.green,
+    Colors.purple,
+    Colors.orange,
+    Colors.teal,
+  ];
 
-  const BalanceHistoryChart({
+  BalanceHistoryChart({
     super.key,
     required this.sessions,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (sessions.isEmpty) {
-      return const Center(child: Text('Keine Daten verfügbar'));
-    }
+    final balanceHistory = _calculateBalanceHistory();
+    
+    return Column(
+      children: [
+        Expanded(
+          child: LineChart(
+            LineChartData(
+              lineTouchData: LineTouchData(
+                touchTooltipData: LineTouchTooltipData(
+                  tooltipBgColor: Theme.of(context).colorScheme.surface,
+                  getTooltipItems: (touchedSpots) {
+                    return touchedSpots.map((spot) {
+                      final playerName = balanceHistory.keys.elementAt(spot.barIndex);
+                      return LineTooltipItem(
+                        '$playerName: ${spot.y.toStringAsFixed(2)}€',
+                        TextStyle(
+                          color: lineColors[spot.barIndex % lineColors.length],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      );
+                    }).toList();
+                  },
+                ),
+              ),
+              gridData: FlGridData(show: true),
+              titlesData: FlTitlesData(
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      if (value.toInt() >= sessions.length) return const Text('');
+                      return Text(
+                        DateFormat('dd.MM').format(sessions[value.toInt()].date),
+                        style: const TextStyle(fontSize: 10),
+                      );
+                    },
+                    interval: 1,
+                  ),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    interval: 100, // Increased interval for less cramped y-axis
+                    reservedSize: 45, // Increased space for y-axis labels
+                  ),
+                ),
+                rightTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                topTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+              ),
+              borderData: FlBorderData(show: true),
+              lineBarsData: _createLineBarsData(balanceHistory),
+            ),
+          ),
+        ),
+        // Add legend below the chart
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          children: balanceHistory.keys.map((player) {
+            final colorIndex = balanceHistory.keys.toList().indexOf(player);
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 16,
+                  height: 3,
+                  color: lineColors[colorIndex % lineColors.length],
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  player,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
 
-    // Get all unique players
-    final players = <String>{};
-    for (final session in sessions) {
-      players.addAll(session.players);
-    }
+  List<LineChartBarData> _createLineBarsData(Map<String, List<double>> balanceHistory) {
+    return balanceHistory.entries.map((entry) {
+      final colorIndex = balanceHistory.keys.toList().indexOf(entry.key);
+      return LineChartBarData(
+        spots: entry.value.asMap().entries.map((point) {
+          return FlSpot(point.key.toDouble(), point.value);
+        }).toList(),
+        isCurved: true,
+        color: lineColors[colorIndex % lineColors.length],
+        barWidth: 3,
+        isStrokeCapRound: true,
+        dotData: FlDotData(show: false),
+        belowBarData: BarAreaData(show: false),
+      );
+    }).toList();
+  }
 
-    // Calculate cumulative balances for each player
-    Map<String, List<FlSpot>> playerSpots = {};
+  Map<String, List<double>> _calculateBalanceHistory() {
+    final history = <String, List<double>>{};
     
     // Sort sessions by date
     final sortedSessions = sessions.toList()
       ..sort((a, b) => a.date.compareTo(b.date));
-
-    // Add starting point (0) for each player
-    for (var player in players) {
-      playerSpots[player] = [
-        FlSpot(0, 0), // Start at 0
-      ];
-    }
-
-    // Calculate spots for each player
-    double currentBalance = 0;
-    for (int i = 0; i < sortedSessions.length; i++) {
-      final session = sortedSessions[i];
-      for (var player in players) {
-        currentBalance = (playerSpots[player]!.last.y + 
-            (session.playerBalances[player] ?? 0));
-        playerSpots[player]!.add(FlSpot(i + 1, currentBalance));
+    
+    // Initialize starting balances
+    for (final session in sortedSessions) {
+      for (final player in session.players) {
+        history.putIfAbsent(player, () => [0.0]);
       }
     }
-
-    return LineChart(
-      LineChartData(
-        gridData: FlGridData(
-          horizontalInterval: 20,
-          getDrawingHorizontalLine: (value) {
-            return FlLine(
-              color: Theme.of(context).colorScheme.outlineVariant,
-              strokeWidth: 1,
-            );
-          },
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: 20,
-              getTitlesWidget: (value, meta) {
-                return Text('${value.toInt()}€');
-              },
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: max(sortedSessions.length / 5, 1),
-              getTitlesWidget: (value, meta) {
-                if (value.toInt() >= sortedSessions.length) return const Text('');
-                return Text(
-                  DateFormat('dd.MM').format(sortedSessions[value.toInt()].date),
-                  style: const TextStyle(fontSize: 10),
-                );
-              },
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        lineBarsData: playerSpots.entries.map((entry) {
-          final color = _getPlayerColor(entry.key, players.length);
-          return LineChartBarData(
-            spots: entry.value,
-            isCurved: true,
-            color: color,
-            barWidth: 2,
-            dotData: FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: color.withOpacity(0.1),
-            ),
-          );
-        }).toList(),
-        lineTouchData: LineTouchData(
-          touchTooltipData: LineTouchTooltipData(
-            tooltipBgColor: Theme.of(context).colorScheme.surface,
-            getTooltipItems: (touchedSpots) {
-              return touchedSpots.map((spot) {
-                final playerName = playerSpots.entries
-                    .firstWhere((entry) => entry.value.contains(spot))
-                    .key;
-                return LineTooltipItem(
-                  '$playerName\n${spot.y.toStringAsFixed(2)}€',
-                  TextStyle(color: _getPlayerColor(playerName, players.length)),
-                );
-              }).toList();
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Color _getPlayerColor(String player, int totalPlayers) {
-    final colors = [
-      Colors.blue,
-      Colors.red,
-      Colors.green,
-      Colors.orange,
-      Colors.purple,
-      Colors.teal,
-    ];
     
-    return colors[player.hashCode % colors.length];
+    // Calculate running totals
+    for (final session in sortedSessions) {
+      for (final entry in session.playerBalances.entries) {
+        final previousBalance = history[entry.key]!.last;
+        history[entry.key]!.add(previousBalance + entry.value);
+      }
+      
+      // Add current balance for players who didn't play in this session
+      for (final player in history.keys) {
+        if (!session.playerBalances.containsKey(player)) {
+          history[player]!.add(history[player]!.last);
+        }
+      }
+    }
+    
+    return history;
   }
 } 
