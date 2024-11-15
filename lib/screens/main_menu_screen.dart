@@ -69,7 +69,9 @@ class MainMenuScreen extends StatelessWidget {
                   // Logo/Title Area
                   Image.asset(
                     'assets/images/schafkopf.png',
-                    width: screenSize.width * 0.18,
+                    width: screenSize.width < 600
+                        ? screenSize.width * 0.35
+                        : screenSize.width * 0.18,
                   ),
                   const SizedBox(height: 16),
                   Stack(
@@ -78,8 +80,8 @@ class MainMenuScreen extends StatelessWidget {
                       Text(
                         'Schafkopf\nRechner',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.cinzel(
-                          fontSize: 32,
+                        style: GoogleFonts.almendra(
+                          fontSize: 38,
                           fontWeight: FontWeight.bold,
                           color: Colors.black.withOpacity(0.3),
                           height: 1.2,
@@ -98,12 +100,12 @@ class MainMenuScreen extends StatelessWidget {
                         child: Text(
                           'Schafkopf\nRechner',
                           textAlign: TextAlign.center,
-                          style: GoogleFonts.cinzel(
-                            fontSize: 32,
+                          style: GoogleFonts.oldStandardTT(
+                            fontSize: 38,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                             height: 1.2,
-                            letterSpacing: 1.5,
+                            letterSpacing: 1.2,
                           ),
                         ),
                       ),

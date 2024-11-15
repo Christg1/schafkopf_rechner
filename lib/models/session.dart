@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:schafkopf_rechner/utils/balance_calculator.dart';
 import 'game_round.dart';
 import 'game_types.dart';
+
 
 class Session {
   final String id;
@@ -25,32 +27,11 @@ class Session {
     Map<String, double> balances = {for (var player in players) player: 0.0};
     
     for (var round in rounds) {
-      if (round.gameType == GameType.ramsch) {
-        final loser = round.mainPlayer;
-        final otherPlayers = players.where((p) => p != loser).toList();
-        
-        balances[loser] = (balances[loser] ?? 0) - (round.value * otherPlayers.length);
-        
-        for (var player in otherPlayers) {
-          balances[player] = (balances[player] ?? 0) + round.value;
-        }
-      } else {
-        if (round.isWon) {
-          balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) + 
-              (round.value * (players.length - 1));
-          
-          for (var player in players.where((p) => p != round.mainPlayer)) {
-            balances[player] = (balances[player] ?? 0) - round.value;
-          }
-        } else {
-          balances[round.mainPlayer] = (balances[round.mainPlayer] ?? 0) - 
-              (round.value * (players.length - 1));
-          
-          for (var player in players.where((p) => p != round.mainPlayer)) {
-            balances[player] = (balances[player] ?? 0) + round.value;
-          }
-        }
-      }
+      balances = BalanceCalculator.calculateNewBalances(
+        currentBalances: balances,
+        round: round,
+        players: players,
+      );
     }
     
     return balances;

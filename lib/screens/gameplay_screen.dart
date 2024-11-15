@@ -45,16 +45,9 @@ class GameplayScreen extends StatelessWidget {
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // Get the base multiplier based on game type and player count
-            double typeMultiplier = 1.0;
-            if (selectedGameType != null && selectedGameType != GameType.sauspiel) {
-              // Only apply 2x multiplier for solo games in 4-player games
-              typeMultiplier = session.players.length == 4 ? 2.0 : 1.0;
-            }
-            
             double currentValue = GameCalculator.calculateGameValue(
               gameType: selectedGameType ?? GameType.sauspiel,
-              baseValue: session.baseValue * typeMultiplier,
+              baseValue: session.baseValue,
               knockingPlayers: knockingPlayers,
               kontraPlayers: kontraPlayers.toList(),
               rePlayers: rePlayers.toList(),
@@ -373,18 +366,18 @@ class GameplayScreen extends StatelessWidget {
           mainPlayer: round.mainPlayer,
           partner: round.partner,
           isWon: round.isWon,
-          value: baseValue * klopfenMultiplier,  // This is already the total value for Ramsch
+          value: baseValue * klopfenMultiplier,
           timestamp: DateTime.now(),
         );
         await SessionService().addRound(session.id, updatedRound);
       } else {
-        // For non-Ramsch games, multiply by (players.length - 1) to store total win amount
+        // Remove the multiplication here since GameCalculator already returns the total value
         final updatedRound = GameRound(
           gameType: round.gameType,
           mainPlayer: round.mainPlayer,
           partner: round.partner,
           isWon: round.isWon,
-          value: round.value * (session.players.length - 1),  // Convert per-player to total
+          value: round.value,  // Don't multiply by (players.length - 1)
           timestamp: DateTime.now(),
         );
         await SessionService().addRound(session.id, updatedRound);

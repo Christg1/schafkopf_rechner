@@ -103,7 +103,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
                       final previousPlayers = snapshot.data!.docs
                           .map((doc) => doc.id)
-                          .where((name) => !players.contains(name))
+                          .where((name) => !players.any(
+                              (player) => player.toLowerCase() == name.toLowerCase()
+                          ))
                           .toList();
 
                       if (previousPlayers.isEmpty) return const SizedBox();
@@ -212,11 +214,24 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   void _addPlayer() {
     final name = _playerController.text.trim();
-    if (name.isNotEmpty && !players.contains(name) && players.length < 4) {
+    
+    // Check if name exists case-insensitively
+    bool nameExists = players.any(
+      (player) => player.toLowerCase() == name.toLowerCase()
+    );
+
+    if (name.isNotEmpty && !nameExists && players.length < 4) {
       setState(() {
         players.add(name);
         _playerController.clear();
       });
+    } else if (nameExists) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dieser Name existiert bereits!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 

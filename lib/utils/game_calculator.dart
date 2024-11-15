@@ -1,7 +1,16 @@
-import 'dart:math';
 import '../models/game_types.dart';
 
 class GameCalculator {
+  /// Base multipliers for game types
+  static double getGameTypeMultiplier(GameType type) {
+    switch (type) {
+      case GameType.sauspiel:
+        return 1.0;
+      default:
+        return 2.0; // All other games (Wenz, Solo, Ramsch, etc.) are worth double
+    }
+  }
+
   /// Calculates the value of a game round based on various factors
   static double calculateGameValue({
     required GameType gameType,
@@ -12,62 +21,36 @@ class GameCalculator {
     bool isSchneider = false,
     bool isSchwarz = false,
   }) {
-    double value = baseValue;
+    // 1. Start with base value and game type multiplier
+    double gameBaseValue = baseValue * getGameTypeMultiplier(gameType);
+    double value = gameBaseValue;
     
-    // Apply klopfen multiplier for ALL game types (including Ramsch)
-    // Each klopfen doubles the value
-    if (knockingPlayers.isNotEmpty) {
-      for (int i = 0; i < knockingPlayers.length; i++) {
-        value *= 2;  // Double the value for each klopfen
-      }
+    // 2. Apply klopfen (each klopfen doubles the value)
+    for (int i = 0; i < knockingPlayers.length; i++) {
+      value *= 2;
     }
 
-    // For non-Ramsch games, apply other multipliers
+    // 3. For non-Ramsch games, apply additional multipliers
     if (gameType != GameType.ramsch) {
-      if (kontraPlayers.isNotEmpty) value *= 2;
-      if (rePlayers.isNotEmpty) value *= 2;
-      if (isSchneider) value += baseValue;
-      if (isSchwarz) value += baseValue;
+      // Kontra doubles the value
+      if (kontraPlayers.isNotEmpty) {
+        value *= 2;
+      }
+      
+      // Re doubles the value again
+      if (rePlayers.isNotEmpty) {
+        value *= 2;
+      }
+      
+      // Schneider and Schwarz each add the game's base value (not the original base value)
+      if (isSchneider) {
+        value += gameBaseValue;  // Add the game's base value (20 for Solo, 10 for Sauspiel)
+      }
+      if (isSchwarz) {
+        value += gameBaseValue;  // Add the game's base value (20 for Solo, 10 for Sauspiel)
+      }
     }
 
     return value;
   }
-
-  static Map<String, double> calculateBalances({
-    required GameType gameType,
-    required List<String> players,
-    required String mainPlayer,
-    String? partner,
-    required bool isWon,
-    required double value,
-  }) {
-    final balances = <String, double>{};
-    
-    if (players.length == 3) {
-      if (gameType == GameType.sauspiel) {
-        throw Exception('Sauspiel nicht möglich mit 3 Spielern');
-      }
-      
-      for (final player in players) {
-        if (player == mainPlayer) {
-          balances[player] = isWon ? value : -value;
-        } else {
-          balances[player] = isWon ? -value/2 : value/2;
-        }
-      }
-    } else {
-      // 4-player game logic
-      for (final player in players) {
-        if (player == mainPlayer) {
-          balances[player] = isWon ? value * 3 : -value * 3;
-        } else if (player == partner && gameType == GameType.sauspiel) {
-          balances[player] = isWon ? value : -value;
-        } else {
-          balances[player] = isWon ? -value : value;
-        }
-      }
-    }
-
-    return balances;
-  }
-} 
+}

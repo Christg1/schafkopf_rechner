@@ -743,7 +743,10 @@ class SessionDetailsSheet extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '${(round.value * (session.players.length - 1)).toStringAsFixed(2)}€',
+                          '${(round.gameType == GameType.sauspiel 
+                              ? round.value * 2  // For Sauspiel: multiply by 2 (both teams)
+                              : round.value * (session.players.length - 1)  // For other games: multiply by number of players minus 1
+                          ).toStringAsFixed(2)}€',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
